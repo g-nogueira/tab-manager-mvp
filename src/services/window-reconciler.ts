@@ -116,9 +116,9 @@ export async function reconcileAllWindows(): Promise<void> {
   });
 
   const contexts = await loadContexts();
-  const nextContexts = contexts.map((context) => ({
+  const nextContexts: BrowserContext[] = contexts.map((context) => ({
     ...context,
-    state: "shelved" as const,
+    state: "shelved",
     windowId: undefined
   }));
   const bindings: WindowBindings = {};
