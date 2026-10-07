@@ -4,6 +4,8 @@
   import type { ManagerRequest, ManagerResponse } from "../domain/messages";
 
   let contexts: BrowserContext[] = [];
+  let contextOrder: string[] = [];
+  let hasInitializedOrder = false;
   let query = "";
   let loading = true;
   let error = "";
@@ -21,12 +23,40 @@
     });
   }
 
+  function applyContexts(items: BrowserContext[]): void {
+    if (!hasInitializedOrder) {
+      contexts = sortContexts(items);
+      contextOrder = contexts.map((context) => context.id);
+      hasInitializedOrder = true;
+      return;
+    }
+
+    const incomingIds = new Set(items.map((context) => context.id));
+    const retainedOrder = contextOrder.filter((id) => incomingIds.has(id));
+    const retainedIds = new Set(retainedOrder);
+    const newIds = sortContexts(items)
+      .filter((context) => !retainedIds.has(context.id))
+      .map((context) => context.id);
+
+    contextOrder = [...retainedOrder, ...newIds];
+
+    const positions = new Map(
+      contextOrder.map((id, index) => [id, index] as const)
+    );
+
+    contexts = [...items].sort(
+      (a, b) =>
+        (positions.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+        (positions.get(b.id) ?? Number.MAX_SAFE_INTEGER)
+    );
+  }
+
   async function refresh(): Promise<void> {
     try {
       const response = await send({ type: "contexts:list" });
       if (!response.ok) throw new Error(response.error);
 
-      contexts = sortContexts(response.contexts ?? []);
+      applyContexts(response.contexts ?? []);
       error = "";
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
@@ -43,7 +73,7 @@
       return;
     }
 
-    contexts = sortContexts(response.contexts ?? []);
+    applyContexts(response.contexts ?? []);
     error = "";
   }
 
