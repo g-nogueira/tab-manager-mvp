@@ -9,8 +9,8 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        manager: resolve(__dirname, "manager/index.html"),
-        "service-worker": resolve(__dirname, "src/background/service-worker.ts")
+        manager: resolve(process.cwd(), "manager/index.html"),
+        "service-worker": resolve(process.cwd(), "src/background/service-worker.ts")
       },
       output: {
         entryFileNames: "[name].js",
