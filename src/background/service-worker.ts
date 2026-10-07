@@ -1,0 +1,118 @@
+import type { ManagerRequest, ManagerResponse } from "../domain/messages";
+import { loadContexts } from "../services/context-store";
+import {
+  ensureBootstrapped,
+  focusContext,
+  focusTab,
+  markWindowShelved,
+  reconcileAllWindows,
+  renameContext,
+  restoreContext,
+  shelveContext,
+  syncWindow
+} from "../services/window-reconciler";
+
+let queue: Promise<unknown> = Promise.resolve();
+
+function enqueue<T>(work: () => Promise<T>): Promise<T> {
+  const next = queue.then(work, work);
+  queue = next.then(
+    () => undefined,
+    () => undefined
+  );
+  return next;
+}
+
+function sync(windowId?: number, touchedFocus = false): void {
+  if (windowId === undefined) return;
+  void enqueue(() => syncWindow(windowId, { touchedFocus }));
+}
+
+chrome.runtime.onInstalled.addListener(() => {
+  void enqueue(() => reconcileAllWindows());
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  setTimeout(() => {
+    void enqueue(() => reconcileAllWindows());
+  }, 1000);
+});
+
+chrome.windows.onCreated.addListener((window) => {
+  if (window.type !== "normal" || window.id === undefined) return;
+
+  setTimeout(() => {
+    sync(window.id);
+  }, 150);
+});
+
+chrome.windows.onRemoved.addListener((windowId) => {
+  void enqueue(() => markWindowShelved(windowId));
+});
+
+chrome.windows.onFocusChanged.addListener((windowId) => {
+  if (windowId === chrome.windows.WINDOW_ID_NONE) return;
+  sync(windowId, true);
+});
+
+chrome.tabs.onCreated.addListener((tab) => sync(tab.windowId));
+chrome.tabs.onUpdated.addListener((_tabId, _changeInfo, tab) => sync(tab.windowId));
+chrome.tabs.onRemoved.addListener((_tabId, removeInfo) => sync(removeInfo.windowId));
+chrome.tabs.onMoved.addListener((_tabId, moveInfo) => sync(moveInfo.windowId));
+chrome.tabs.onAttached.addListener((_tabId, attachInfo) => sync(attachInfo.newWindowId));
+chrome.tabs.onDetached.addListener((_tabId, detachInfo) => sync(detachInfo.oldWindowId));
+chrome.tabs.onActivated.addListener((activeInfo) => sync(activeInfo.windowId));
+
+chrome.runtime.onMessage.addListener(
+  (
+    request: ManagerRequest,
+    _sender,
+    sendResponse: (response: ManagerResponse) => void
+  ) => {
+    void enqueue(async () => {
+      try {
+        await ensureBootstrapped();
+
+        switch (request.type) {
+          case "contexts:list":
+            return {
+              ok: true,
+              contexts: await loadContexts()
+            } satisfies ManagerResponse;
+
+          case "contexts:rename":
+            await renameContext(request.contextId, request.name);
+            break;
+
+          case "contexts:focus":
+            await focusContext(request.contextId);
+            break;
+
+          case "contexts:shelve":
+            await shelveContext(request.contextId);
+            break;
+
+          case "contexts:restore":
+            await restoreContext(request.contextId);
+            break;
+
+          case "tabs:focus":
+            await focusTab(request.contextId, request.tabId);
+            break;
+        }
+
+        return {
+          ok: true,
+          contexts: await loadContexts()
+        } satisfies ManagerResponse;
+      } catch (error) {
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error)
+        } satisfies ManagerResponse;
+      }
+    }).then(sendResponse);
+
+    return true;
+  }
+);
