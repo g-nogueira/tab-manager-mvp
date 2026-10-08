@@ -1,0 +1,22 @@
+{
+  "name": "tab-manager-mvp",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "check": "svelte-check --tsconfig ./tsconfig.json"
+  },
+  "dependencies": {
+    "svelte": "^5.38.0"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^6.1.0",
+    "@types/chrome": "^0.0.268",
+    "@types/node": "^22.0.0",
+    "svelte-check": "^4.3.0",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.0"
+  }
+}
