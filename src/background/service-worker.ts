@@ -1,15 +1,22 @@
 import type { ManagerRequest, ManagerResponse } from "../domain/messages";
-import { loadContexts } from "../services/context-store";
 import {
+  loadContexts,
+  loadOrganizationTargetId,
+  loadUndoWindowMove,
+  saveOrganizationTargetId
+} from "../services/context-store";
+import {
+  addWindowToContext,
   ensureBootstrapped,
-  focusContext,
   focusTab,
   markWindowShelved,
   reconcileAllWindows,
   renameContext,
   restoreContext,
   shelveContext,
-  syncWindow
+  switchContext,
+  syncWindow,
+  undoLastWindowMove
 } from "../services/window-reconciler";
 
 let queue: Promise<unknown> = Promise.resolve();
@@ -26,6 +33,26 @@ function enqueue<T>(work: () => Promise<T>): Promise<T> {
 function sync(windowId?: number, touchedFocus = false): void {
   if (windowId === undefined) return;
   void enqueue(() => syncWindow(windowId, { touchedFocus }));
+}
+
+async function managerState(): Promise<ManagerResponse> {
+  const contexts = await loadContexts();
+  let organizationTargetId = await loadOrganizationTargetId();
+
+  if (
+    organizationTargetId &&
+    !contexts.some((context) => context.id === organizationTargetId)
+  ) {
+    organizationTargetId = undefined;
+    await saveOrganizationTargetId(undefined);
+  }
+
+  return {
+    ok: true,
+    contexts,
+    organizationTargetId,
+    canUndoWindowMove: Boolean(await loadUndoWindowMove())
+  };
 }
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -75,17 +102,14 @@ chrome.runtime.onMessage.addListener(
 
         switch (request.type) {
           case "contexts:list":
-            return {
-              ok: true,
-              contexts: await loadContexts()
-            } satisfies ManagerResponse;
+            return managerState();
 
           case "contexts:rename":
             await renameContext(request.contextId, request.name);
             break;
 
-          case "contexts:focus":
-            await focusContext(request.contextId);
+          case "contexts:switch":
+            await switchContext(request.contextId);
             break;
 
           case "contexts:shelve":
@@ -96,15 +120,24 @@ chrome.runtime.onMessage.addListener(
             await restoreContext(request.contextId);
             break;
 
+          case "contexts:add-window":
+            await addWindowToContext(
+              request.sourceContextId,
+              request.contextWindowId,
+              request.targetContextId
+            );
+            break;
+
+          case "contexts:undo-window-move":
+            await undoLastWindowMove();
+            break;
+
           case "tabs:focus":
             await focusTab(request.contextId, request.tabId);
             break;
         }
 
-        return {
-          ok: true,
-          contexts: await loadContexts()
-        } satisfies ManagerResponse;
+        return managerState();
       } catch (error) {
         return {
           ok: false,
