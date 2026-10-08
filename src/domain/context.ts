@@ -1,4 +1,5 @@
-export type ContextState = "active" | "shelved";
+export type ContextWindowState = "active" | "shelved";
+export type RestorableWindowState = "normal" | "maximized";
 
 export interface TabSnapshot {
   tabId?: number;
@@ -10,17 +11,42 @@ export interface TabSnapshot {
   active: boolean;
 }
 
-export interface BrowserContext {
+export interface ContextWindow {
   id: string;
   name?: string;
-  state: ContextState;
+  state: ContextWindowState;
   windowId?: number;
   tabs: TabSnapshot[];
+  preferredState: RestorableWindowState;
   createdAt: number;
   updatedAt: number;
   lastFocusedAt?: number;
 }
 
+export interface BrowserContext {
+  id: string;
+  name?: string;
+  windows: ContextWindow[];
+  createdAt: number;
+  updatedAt: number;
+  lastFocusedAt?: number;
+}
+
+export interface WindowBinding {
+  contextId: string;
+  contextWindowId: string;
+}
+
 export interface WindowBindings {
-  [windowId: string]: string;
+  [windowId: string]: WindowBinding;
+}
+
+export interface UndoWindowMove {
+  sourceContextId: string;
+  sourceContextName?: string;
+  sourceContextCreatedAt: number;
+  sourceContextLastFocusedAt?: number;
+  sourceWindowIndex: number;
+  contextWindowId: string;
+  targetContextId: string;
 }
