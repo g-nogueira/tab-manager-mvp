@@ -1,20 +1,25 @@
 # Tab Manager MVP
 
-Chrome extension for organizing browser windows as persistent named contexts.
+Chrome extension for organizing browser windows as persistent named task contexts.
 
-## MVP model
+## Current model
 
-For the first version:
+- a context contains one or more Chrome windows;
+- a new Chrome window starts as its own context;
+- click a context name (or the pencil icon) to rename it;
+- renaming a context makes it the current **organizing target**;
+- adding a window to a context also makes that context the organizing target;
+- a window menu shows **Add to <current target>** when applicable, plus **Add to another context…**;
+- **Switch** restores/shows every window in the selected context and minimizes Chrome windows from other contexts;
+- switching preserves each window's previous normal/maximized state;
+- **Shelve** closes all windows in a context while keeping their tab snapshots;
+- **Restore** recreates the windows of a shelved context;
+- search matches context names, window names, tab titles and URLs;
+- context/window IDs are persistent while Chrome window IDs are treated as session-only bindings.
 
-- one Chrome window = one context;
-- context names are manually editable;
-- unnamed contexts fall back to a generated hostname summary;
-- closing or shelving a window keeps its tabs as a shelved context;
-- restoring a context recreates its Chrome window;
-- search matches both context names and tab title/URL;
-- Chrome window IDs are treated as session-only bindings, not persistent IDs.
+Existing single-window data from the first MVP is migrated in-place.
 
-AI-assisted title generation is intentionally left for a follow-up after the first real-world tests.
+AI-assisted title generation remains intentionally deferred until the context/workspace behavior is stable.
 
 ## Run locally
 
@@ -34,15 +39,17 @@ Then in Chrome:
 
 After changes, run `npm run build` again and click **Reload** on the extension card.
 
-## First test pass
+## Multi-window test pass
 
-Please exercise these before we add title generation:
-
-1. Rename several current windows.
-2. Open/close/move tabs and confirm each context stays in sync.
-3. Close a named Chrome window and confirm it appears under **Shelved**.
-4. Restore it and verify tab order, pinned tabs and active tab are reasonable.
-5. Restart Chrome with restore-on-startup enabled and verify names remain attached to the correct windows.
-6. Search for a context by both its custom name and a tab title/URL.
-
-The restart reconciliation currently matches windows to saved contexts using normalized URL overlap. Real browsing examples will be useful to tune that heuristic.
+1. Reload the extension with existing MVP data and verify current context names survive.
+2. Rename one context and confirm **Organizing into <name>** appears.
+3. Open another context's `⋮` menu and use **Add to <name>**.
+4. Verify both windows now render inside one context.
+5. Use **Undo** and verify the original contexts return.
+6. Add the window again, then use **Switch**:
+   - windows in the selected context should be restored/shown;
+   - other Chrome context windows should be minimized;
+   - normal/maximized state should be preserved when switching back.
+7. Test **Add to another context…** rather than the current organizing target.
+8. Shelve and restore a multi-window context.
+9. Restart Chrome and verify both windows reconcile back to the same context.
