@@ -1,7 +1,6 @@
 import type { ManagerRequest, ManagerResponse } from "../domain/messages";
 import {
   handleTabContextMenuClick,
-  prepareTabContextMenusForWindow,
   rebuildTabContextMenus
 } from "../services/tab-context-menu";
 import {
@@ -93,18 +92,16 @@ chrome.windows.onRemoved.addListener((windowId) => {
 
 chrome.windows.onFocusChanged.addListener((windowId) => {
   if (windowId === chrome.windows.WINDOW_ID_NONE) return;
-  sync(windowId, true);
+
+  void enqueue(async () => {
+    await syncWindow(windowId, { touchedFocus: true });
+    await rebuildTabContextMenus(windowId);
+  });
 });
 
 chrome.windows.onBoundsChanged.addListener((window) => {
   if (window.id === undefined || window.type !== "normal") return;
   sync(window.id);
-});
-
-chrome.contextMenus.onShown.addListener((_info, tab) => {
-  if (tab?.windowId === undefined) return;
-
-  void enqueue(() => prepareTabContextMenusForWindow(tab.windowId));
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
