@@ -684,8 +684,16 @@ export async function addChromeWindowToContext(
 export async function addWindowToContext(
   sourceContextId: string,
   contextWindowId: string,
-  targetContextId: string
+  targetContextId: string,
+  options: {
+    updateOrganizationTarget?: boolean;
+    recordUndo?: boolean;
+  } = {}
 ): Promise<void> {
+  const {
+    updateOrganizationTarget = true,
+    recordUndo = true
+  } = options;
   if (sourceContextId === targetContextId) {
     throw new Error("Window already belongs to this context");
   }
@@ -746,8 +754,93 @@ export async function addWindowToContext(
 
   await saveContexts(contexts);
   await saveBindings(bindings);
-  await saveOrganizationTargetId(target.id);
-  await saveUndoWindowMove(undo);
+
+  if (updateOrganizationTarget) {
+    await saveOrganizationTargetId(target.id);
+  }
+
+  if (recordUndo) {
+    await saveUndoWindowMove(undo);
+  }
+}
+
+export async function inheritDetachedTabWindow(
+  oldWindowId: number,
+  sourceContextId: string,
+  sourceContextWindowId: string,
+  newWindowId: number,
+  sourceWindowHadRemainingTabs: boolean
+): Promise<void> {
+  await syncWindow(newWindowId);
+
+  const contexts = await loadContexts();
+  const bindings = await loadBindings();
+  const sourceContext = contexts.find((context) => context.id === sourceContextId);
+  const sourceContextWindow = sourceContext?.windows.find(
+    (window) => window.id === sourceContextWindowId
+  );
+  const destinationBinding = bindings[String(newWindowId)];
+
+  if (!sourceContext || !sourceContextWindow || !destinationBinding) {
+    return;
+  }
+
+  if (destinationBinding.contextId === sourceContextId) {
+    return;
+  }
+
+  if (sourceWindowHadRemainingTabs) {
+    await addWindowToContext(
+      destinationBinding.contextId,
+      destinationBinding.contextWindowId,
+      sourceContextId,
+      {
+        updateOrganizationTarget: false,
+        recordUndo: false
+      }
+    );
+    return;
+  }
+
+  const destinationContextIndex = contexts.findIndex(
+    (context) => context.id === destinationBinding.contextId
+  );
+  if (destinationContextIndex < 0) return;
+
+  const destinationContext = contexts[destinationContextIndex];
+  const destinationWindowIndex = destinationContext.windows.findIndex(
+    (window) => window.id === destinationBinding.contextWindowId
+  );
+  if (destinationWindowIndex < 0) return;
+
+  const [destinationWindow] = destinationContext.windows.splice(
+    destinationWindowIndex,
+    1
+  );
+
+  sourceContextWindow.state = destinationWindow.state;
+  sourceContextWindow.windowId = newWindowId;
+  sourceContextWindow.tabs = destinationWindow.tabs;
+  sourceContextWindow.preferredState = destinationWindow.preferredState;
+  sourceContextWindow.normalBounds = destinationWindow.normalBounds;
+  sourceContextWindow.updatedAt = now();
+  sourceContextWindow.lastFocusedAt = destinationWindow.lastFocusedAt;
+  sourceContext.updatedAt = now();
+
+  delete bindings[String(oldWindowId)];
+  bindings[String(newWindowId)] = {
+    contextId: sourceContext.id,
+    contextWindowId: sourceContextWindow.id
+  };
+
+  if (destinationContext.windows.length === 0) {
+    contexts.splice(destinationContextIndex, 1);
+  } else {
+    destinationContext.updatedAt = now();
+  }
+
+  await saveContexts(contexts);
+  await saveBindings(bindings);
 }
 
 export async function undoLastWindowMove(): Promise<void> {
