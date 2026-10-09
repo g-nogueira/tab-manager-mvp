@@ -435,7 +435,7 @@ async function createChromeWindowFromSnapshot(
 
   const created = await chrome.windows.create(createData);
 
-  if (created.id === undefined) {
+  if (!created || created.id === undefined) {
     throw new Error("Chrome did not return a window id");
   }
 
