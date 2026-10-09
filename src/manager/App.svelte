@@ -376,7 +376,12 @@
                   >⋮</button>
 
                   {#if openContextMenuId === context.id}
-                    <div class="menu" on:click={(event) => event.stopPropagation()}>
+                    <div
+                      class="menu"
+                      role="menu"
+                      on:click={(event) => event.stopPropagation()}
+                      on:keydown={(event) => event.stopPropagation()}
+                    >
                       {#if context.windows.length === 1}
                         {@const onlyWindow = context.windows[0]}
                         {#if targetContext && targetContext.id !== context.id}
@@ -466,7 +471,12 @@
                         >⋮</button>
 
                         {#if openWindowMenuKey === windowMenuKey(context.id, contextWindow.id)}
-                          <div class="menu window-menu" on:click={(event) => event.stopPropagation()}>
+                          <div
+                            class="menu window-menu"
+                            role="menu"
+                            on:click={(event) => event.stopPropagation()}
+                            on:keydown={(event) => event.stopPropagation()}
+                          >
                             {#if targetContext && targetContext.id !== context.id}
                               <button on:click={() => addWindow(context, contextWindow, targetContext)}>
                                 Add to {contextName(targetContext)}
