@@ -1,5 +1,10 @@
 import type { ManagerRequest, ManagerResponse } from "../domain/messages";
 import {
+  handleTabContextMenuClick,
+  prepareTabContextMenusForWindow,
+  rebuildTabContextMenus
+} from "../services/tab-context-menu";
+import {
   loadContexts,
   loadOrganizationTargetId,
   loadUndoWindowMove,
@@ -56,12 +61,18 @@ async function managerState(): Promise<ManagerResponse> {
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  void enqueue(() => reconcileAllWindows());
+  void enqueue(async () => {
+    await reconcileAllWindows();
+    await rebuildTabContextMenus();
+  });
 });
 
 chrome.runtime.onStartup.addListener(() => {
   setTimeout(() => {
-    void enqueue(() => reconcileAllWindows());
+    void enqueue(async () => {
+      await reconcileAllWindows();
+      await rebuildTabContextMenus();
+    });
   }, 1000);
 });
 
@@ -69,7 +80,10 @@ chrome.windows.onCreated.addListener((window) => {
   if (window.type !== "normal" || window.id === undefined) return;
 
   setTimeout(() => {
-    sync(window.id);
+    void enqueue(async () => {
+      await syncWindow(window.id!);
+      await rebuildTabContextMenus();
+    });
   }, 150);
 });
 
@@ -80,6 +94,27 @@ chrome.windows.onRemoved.addListener((windowId) => {
 chrome.windows.onFocusChanged.addListener((windowId) => {
   if (windowId === chrome.windows.WINDOW_ID_NONE) return;
   sync(windowId, true);
+});
+
+chrome.windows.onBoundsChanged.addListener((window) => {
+  if (window.id === undefined || window.type !== "normal") return;
+  sync(window.id);
+});
+
+chrome.contextMenus.onShown.addListener((_info, tab) => {
+  if (tab?.windowId === undefined) return;
+
+  void enqueue(() => prepareTabContextMenusForWindow(tab.windowId));
+});
+
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  void enqueue(async () => {
+    try {
+      await handleTabContextMenuClick(info.menuItemId, tab);
+    } catch (error) {
+      console.error("Context menu action failed", error);
+    }
+  });
 });
 
 chrome.tabs.onCreated.addListener((tab) => sync(tab.windowId));
@@ -137,6 +172,7 @@ chrome.runtime.onMessage.addListener(
             break;
         }
 
+        await rebuildTabContextMenus();
         return managerState();
       } catch (error) {
         return {
