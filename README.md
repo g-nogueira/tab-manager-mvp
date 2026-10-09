@@ -53,3 +53,26 @@ After changes, run `npm run build` again and click **Reload** on the extension c
 7. Test **Add to another context…** rather than the current organizing target.
 8. Shelve and restore a multi-window context.
 9. Restart Chrome and verify both windows reconcile back to the same context.
+
+
+## Native tab menu and window layout
+
+A tab's Chrome context menu can now assign its whole window without opening the extension popup:
+
+- **Add this window to <organizing target>** uses the last context renamed or assigned to.
+- **Add this window to another context…** exposes the other known contexts.
+- **Undo last context assignment** is available after a native-menu move.
+- The current window's own context is hidden from assignment choices.
+
+Context switching also persists a normal window's exact `left`, `top`, `width` and `height`. A maximized window keeps its last known normal bounds and returns to maximized when its context is selected again.
+
+### Test pass
+
+1. Open a new Chrome window and at least one tab.
+2. Right-click the tab and assign the whole window to the current organizing target.
+3. Repeat with **Add this window to another context…**.
+4. Use **Undo last context assignment** from the tab menu.
+5. Arrange two context windows at distinct sizes/positions.
+6. Switch to another context, then switch back and verify both windows return to their previous geometry.
+7. Repeat with one window maximized and one normal.
+8. Manually resize/move a normal window, switch away/back, and confirm the latest committed bounds are restored.
