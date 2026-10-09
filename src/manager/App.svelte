@@ -379,6 +379,7 @@
                     <div
                       class="menu"
                       role="menu"
+                      tabindex="-1"
                       on:click={(event) => event.stopPropagation()}
                       on:keydown={(event) => event.stopPropagation()}
                     >
@@ -474,6 +475,7 @@
                           <div
                             class="menu window-menu"
                             role="menu"
+                            tabindex="-1"
                             on:click={(event) => event.stopPropagation()}
                             on:keydown={(event) => event.stopPropagation()}
                           >
