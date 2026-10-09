@@ -52,8 +52,6 @@ function contextItemId(contextId: string): string {
 
 function createMenu(properties: chrome.contextMenus.CreateProperties): void {
   chrome.contextMenus.create(properties, () => {
-    // Reading lastError prevents benign duplicate/removal races from surfacing
-    // as unchecked extension errors while the menu is being rebuilt.
     void chrome.runtime.lastError;
   });
 }
@@ -67,33 +65,38 @@ function removeAllMenus(): Promise<void> {
   });
 }
 
-function updateMenu(
-  id: string,
-  properties: chrome.contextMenus.UpdateProperties
+async function currentSourceContextId(
+  sourceWindowId?: number
+): Promise<string | undefined> {
+  let windowId = sourceWindowId;
+
+  if (windowId === undefined) {
+    try {
+      const focused = await chrome.windows.getLastFocused({
+        windowTypes: ["normal"]
+      });
+      windowId = focused.id;
+    } catch {
+      return undefined;
+    }
+  }
+
+  if (windowId === undefined) return undefined;
+
+  const bindings = await loadBindings();
+  return bindings[String(windowId)]?.contextId;
+}
+
+export async function rebuildTabContextMenus(
+  sourceWindowId?: number
 ): Promise<void> {
-  return new Promise((resolve) => {
-    chrome.contextMenus.update(id, properties, () => {
-      void chrome.runtime.lastError;
-      resolve();
-    });
-  });
-}
-
-function refreshMenus(): Promise<void> {
-  return new Promise((resolve) => {
-    chrome.contextMenus.refresh(() => {
-      void chrome.runtime.lastError;
-      resolve();
-    });
-  });
-}
-
-export async function rebuildTabContextMenus(): Promise<void> {
-  const [contexts, organizationTargetId, undo] = await Promise.all([
-    loadContexts(),
-    loadOrganizationTargetId(),
-    loadUndoWindowMove()
-  ]);
+  const [contexts, organizationTargetId, undo, sourceContextId] =
+    await Promise.all([
+      loadContexts(),
+      loadOrganizationTargetId(),
+      loadUndoWindowMove(),
+      currentSourceContextId(sourceWindowId)
+    ]);
 
   await removeAllMenus();
 
@@ -101,7 +104,7 @@ export async function rebuildTabContextMenus(): Promise<void> {
     ? contexts.find((context) => context.id === organizationTargetId)
     : undefined;
 
-  if (target) {
+  if (target && target.id !== sourceContextId) {
     createMenu({
       id: ADD_TO_TARGET_ID,
       title: `Add this window to ${contextLabel(target)}`,
@@ -109,7 +112,11 @@ export async function rebuildTabContextMenus(): Promise<void> {
     });
   }
 
-  if (contexts.length > 0) {
+  const eligibleTargets = contexts.filter(
+    (context) => context.id !== sourceContextId
+  );
+
+  if (eligibleTargets.length > 0) {
     createMenu({
       id: ADD_TO_ANOTHER_ID,
       title: target
@@ -118,7 +125,7 @@ export async function rebuildTabContextMenus(): Promise<void> {
       contexts: ["tab"]
     });
 
-    for (const context of contexts) {
+    for (const context of eligibleTargets) {
       createMenu({
         id: contextItemId(context.id),
         parentId: ADD_TO_ANOTHER_ID,
@@ -142,66 +149,6 @@ export async function rebuildTabContextMenus(): Promise<void> {
   }
 }
 
-export async function prepareTabContextMenusForWindow(
-  windowId: number
-): Promise<void> {
-  const [contexts, bindings, organizationTargetId, undo] = await Promise.all([
-    loadContexts(),
-    loadBindings(),
-    loadOrganizationTargetId(),
-    loadUndoWindowMove()
-  ]);
-
-  const sourceContextId = bindings[String(windowId)]?.contextId;
-  const target = organizationTargetId
-    ? contexts.find((context) => context.id === organizationTargetId)
-    : undefined;
-
-  const tasks: Promise<void>[] = [];
-
-  if (target) {
-    tasks.push(
-      updateMenu(ADD_TO_TARGET_ID, {
-        title: `Add this window to ${contextLabel(target)}`,
-        visible: target.id !== sourceContextId
-      })
-    );
-  }
-
-  let eligibleCount = 0;
-
-  for (const context of contexts) {
-    const visible = context.id !== sourceContextId;
-    if (visible) eligibleCount += 1;
-
-    tasks.push(
-      updateMenu(contextItemId(context.id), {
-        title: contextLabel(context),
-        visible
-      })
-    );
-  }
-
-  if (contexts.length > 0) {
-    tasks.push(
-      updateMenu(ADD_TO_ANOTHER_ID, {
-        title: target
-          ? "Add this window to another context…"
-          : "Add this window to context…",
-        visible: eligibleCount > 0
-      })
-    );
-  }
-
-  if (undo) {
-    tasks.push(updateMenu(UNDO_ID, { visible: true }));
-    tasks.push(updateMenu(UNDO_SEPARATOR_ID, { visible: true }));
-  }
-
-  await Promise.all(tasks);
-  await refreshMenus();
-}
-
 export async function handleTabContextMenuClick(
   menuItemId: string | number,
   tab: chrome.tabs.Tab | undefined
@@ -212,7 +159,7 @@ export async function handleTabContextMenuClick(
 
   if (id === UNDO_ID) {
     await undoLastWindowMove();
-    await rebuildTabContextMenus();
+    await rebuildTabContextMenus(tab.windowId);
     return;
   }
 
@@ -227,5 +174,5 @@ export async function handleTabContextMenuClick(
   if (!targetContextId) return;
 
   await addChromeWindowToContext(tab.windowId, targetContextId);
-  await rebuildTabContextMenus();
+  await rebuildTabContextMenus(tab.windowId);
 }
