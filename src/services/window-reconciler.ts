@@ -46,7 +46,7 @@ function snapshotTabs(tabs: chrome.tabs.Tab[] = []): TabSnapshot[] {
 }
 
 function preferredStateFromChrome(
-  state: chrome.windows.WindowState | undefined,
+  state: chrome.windows.Window["state"] | undefined,
   fallback: RestorableWindowState = "normal"
 ): RestorableWindowState {
   if (state === "maximized" || state === "fullscreen" || state === "locked-fullscreen") {
