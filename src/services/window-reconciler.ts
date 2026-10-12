@@ -94,18 +94,43 @@ function captureWindowLayout(
   }
 }
 
+function waitForChrome(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function matchesPreferredVisibleState(
+  state: chrome.windows.Window["state"] | undefined,
+  preferredState: RestorableWindowState
+): boolean {
+  return preferredState === "maximized"
+    ? state === "maximized"
+    : state === "normal";
+}
+
 async function restoreWindowLayout(
   contextWindow: ContextWindow,
   focused = false
 ): Promise<void> {
   if (contextWindow.windowId === undefined) return;
 
-  // Chrome only accepts explicit bounds reliably while a window is normal.
+  let current: chrome.windows.Window | undefined;
+
+  try {
+    current = await chrome.windows.get(contextWindow.windowId);
+  } catch {
+    return;
+  }
+
+  // On Windows, asking Chrome to restore a minimized window while explicitly
+  // keeping it unfocused can leave it minimized. If it is minimized, briefly
+  // activate it to force the OS-level restore. The context's last-used window
+  // is focused again after all context windows have been restored.
   await chrome.windows.update(contextWindow.windowId, {
     state: "normal",
-    focused: false
+    ...(current.state === "minimized" ? { focused: true } : {})
   });
 
+  // Chrome only accepts explicit bounds reliably while a window is normal.
   if (contextWindow.normalBounds) {
     await chrome.windows.update(contextWindow.windowId, {
       left: contextWindow.normalBounds.left,
@@ -117,12 +142,49 @@ async function restoreWindowLayout(
 
   if (contextWindow.preferredState === "maximized") {
     await chrome.windows.update(contextWindow.windowId, {
-      state: "maximized",
-      focused
+      state: "maximized"
     });
-  } else if (focused) {
+  }
+
+  if (focused) {
     await chrome.windows.update(contextWindow.windowId, { focused: true });
   }
+}
+
+async function ensureWindowVisible(
+  contextWindow: ContextWindow
+): Promise<void> {
+  if (contextWindow.windowId === undefined) return;
+
+  const maxAttempts = 3;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    await restoreWindowLayout(contextWindow);
+
+    // Window state changes are asynchronous at the OS/window-manager boundary.
+    // Give Chrome a short opportunity to commit the requested state before
+    // verifying the postcondition.
+    await waitForChrome(40);
+
+    let current: chrome.windows.Window;
+
+    try {
+      current = await chrome.windows.get(contextWindow.windowId);
+    } catch {
+      throw new Error("Context window disappeared while switching");
+    }
+
+    if (
+      current.state !== "minimized" &&
+      matchesPreferredVisibleState(current.state, contextWindow.preferredState)
+    ) {
+      return;
+    }
+  }
+
+  throw new Error(
+    `Could not restore context window ${contextWindow.id} to a visible state`
+  );
 }
 
 function contextWindowFromWindow(window: chrome.windows.Window): ContextWindow {
@@ -541,11 +603,16 @@ export async function switchContext(contextId: string): Promise<void> {
 
   const focusWindow = targetWindows[targetWindows.length - 1];
 
+  // "Switch context" means every window in the target context is usable now.
+  // A manually minimized window is transient UI state, not part of the saved
+  // context layout, so actively restore and verify every target window.
   for (const contextWindow of targetWindows) {
-    await restoreWindowLayout(contextWindow, contextWindow.id === focusWindow?.id);
+    await ensureWindowVisible(contextWindow);
   }
 
   if (focusWindow?.windowId !== undefined) {
+    await chrome.windows.update(focusWindow.windowId, { focused: true });
+
     const timestamp = now();
     focusWindow.lastFocusedAt = timestamp;
     target.lastFocusedAt = timestamp;
@@ -648,11 +715,12 @@ export async function restoreContext(contextId: string): Promise<void> {
 
   for (const contextWindow of context.windows) {
     if (contextWindow.windowId !== undefined) {
-      await restoreWindowLayout(
-        contextWindow,
-        contextWindow.id === focusWindow?.id
-      );
+      await ensureWindowVisible(contextWindow);
     }
+  }
+
+  if (focusWindow?.windowId !== undefined) {
+    await chrome.windows.update(focusWindow.windowId, { focused: true });
   }
 
   context.updatedAt = now();
