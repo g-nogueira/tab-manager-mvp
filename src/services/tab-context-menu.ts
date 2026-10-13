@@ -7,9 +7,12 @@ import {
 } from "./context-store";
 import {
   addChromeWindowToContext,
+  createContextFromChromeWindow,
   undoLastWindowMove
 } from "./window-reconciler";
 
+const CREATE_NEW_CONTEXT_ID = "tab-context:create-new-context";
+const CREATE_SEPARATOR_ID = "tab-context:create-separator";
 const ADD_TO_TARGET_ID = "tab-context:add-to-target";
 const ADD_TO_ANOTHER_ID = "tab-context:add-to-another";
 const ADD_TO_CONTEXT_PREFIX = "tab-context:add-to:";
@@ -100,9 +103,25 @@ export async function rebuildTabContextMenus(
 
   await removeAllMenus();
 
+  const sourceContext = sourceContextId
+    ? contexts.find((context) => context.id === sourceContextId)
+    : undefined;
   const target = organizationTargetId
     ? contexts.find((context) => context.id === organizationTargetId)
     : undefined;
+
+  if (sourceContext && sourceContext.windows.length > 1) {
+    createMenu({
+      id: CREATE_NEW_CONTEXT_ID,
+      title: "Create new context from this window",
+      contexts: ["tab"]
+    });
+    createMenu({
+      id: CREATE_SEPARATOR_ID,
+      type: "separator",
+      contexts: ["tab"]
+    });
+  }
 
   if (target && target.id !== sourceContextId) {
     createMenu({
@@ -159,6 +178,12 @@ export async function handleTabContextMenuClick(
 
   if (id === UNDO_ID) {
     await undoLastWindowMove();
+    await rebuildTabContextMenus(tab.windowId);
+    return;
+  }
+
+  if (id === CREATE_NEW_CONTEXT_ID) {
+    await createContextFromChromeWindow(tab.windowId);
     await rebuildTabContextMenus(tab.windowId);
     return;
   }
