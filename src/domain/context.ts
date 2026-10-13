@@ -1,6 +1,13 @@
 export type ContextWindowState = "active" | "shelved";
 export type RestorableWindowState = "normal" | "maximized";
 
+export interface WindowBounds {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
 export interface TabSnapshot {
   tabId?: number;
   url: string;
@@ -18,6 +25,7 @@ export interface ContextWindow {
   windowId?: number;
   tabs: TabSnapshot[];
   preferredState: RestorableWindowState;
+  normalBounds?: WindowBounds;
   createdAt: number;
   updatedAt: number;
   lastFocusedAt?: number;

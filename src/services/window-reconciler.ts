@@ -3,6 +3,7 @@ import type {
   ContextWindow,
   RestorableWindowState,
   TabSnapshot,
+  WindowBounds,
   UndoWindowMove,
   WindowBindings
 } from "../domain/context";
@@ -57,6 +58,73 @@ function preferredStateFromChrome(
   return fallback;
 }
 
+function normalBoundsFromChrome(
+  window: chrome.windows.Window
+): WindowBounds | undefined {
+  if (
+    window.state !== "normal" ||
+    typeof window.left !== "number" ||
+    typeof window.top !== "number" ||
+    typeof window.width !== "number" ||
+    typeof window.height !== "number"
+  ) {
+    return undefined;
+  }
+
+  return {
+    left: window.left,
+    top: window.top,
+    width: window.width,
+    height: window.height
+  };
+}
+
+function captureWindowLayout(
+  contextWindow: ContextWindow,
+  window: chrome.windows.Window
+): void {
+  contextWindow.preferredState = preferredStateFromChrome(
+    window.state,
+    contextWindow.preferredState
+  );
+
+  const bounds = normalBoundsFromChrome(window);
+  if (bounds) {
+    contextWindow.normalBounds = bounds;
+  }
+}
+
+async function restoreWindowLayout(
+  contextWindow: ContextWindow,
+  focused = false
+): Promise<void> {
+  if (contextWindow.windowId === undefined) return;
+
+  // Chrome only accepts explicit bounds reliably while a window is normal.
+  await chrome.windows.update(contextWindow.windowId, {
+    state: "normal",
+    focused: false
+  });
+
+  if (contextWindow.normalBounds) {
+    await chrome.windows.update(contextWindow.windowId, {
+      left: contextWindow.normalBounds.left,
+      top: contextWindow.normalBounds.top,
+      width: contextWindow.normalBounds.width,
+      height: contextWindow.normalBounds.height
+    });
+  }
+
+  if (contextWindow.preferredState === "maximized") {
+    await chrome.windows.update(contextWindow.windowId, {
+      state: "maximized",
+      focused
+    });
+  } else if (focused) {
+    await chrome.windows.update(contextWindow.windowId, { focused: true });
+  }
+}
+
 function contextWindowFromWindow(window: chrome.windows.Window): ContextWindow {
   const timestamp = now();
 
@@ -66,6 +134,7 @@ function contextWindowFromWindow(window: chrome.windows.Window): ContextWindow {
     windowId: window.id,
     tabs: snapshotTabs(window.tabs),
     preferredState: preferredStateFromChrome(window.state),
+    normalBounds: normalBoundsFromChrome(window),
     createdAt: timestamp,
     updatedAt: timestamp,
     lastFocusedAt: window.focused ? timestamp : undefined
@@ -213,10 +282,7 @@ export async function reconcileAllWindows(): Promise<void> {
     contextWindow.state = "active";
     contextWindow.windowId = window.id;
     contextWindow.tabs = tabs;
-    contextWindow.preferredState = preferredStateFromChrome(
-      window.state,
-      contextWindow.preferredState
-    );
+    captureWindowLayout(contextWindow, window);
     contextWindow.updatedAt = now();
 
     if (window.focused) {
@@ -279,10 +345,7 @@ export async function syncWindow(
     contextWindow.state = "active";
     contextWindow.windowId = windowId;
     contextWindow.tabs = snapshotTabs(window.tabs);
-    contextWindow.preferredState = preferredStateFromChrome(
-      window.state,
-      contextWindow.preferredState
-    );
+    captureWindowLayout(contextWindow, window);
     contextWindow.updatedAt = now();
     context.updatedAt = now();
   }
@@ -354,11 +417,25 @@ async function createChromeWindowFromSnapshot(
     .sort((a, b) => a.index - b.index);
 
   const urls = snapshots.map((tab) => tab.url);
-  const created = await chrome.windows.create(
-    urls.length > 0 ? { url: urls, focused } : { focused }
-  );
+  const createData: chrome.windows.CreateData = {
+    focused: false,
+    state: "normal"
+  };
 
-  if (created.id === undefined) {
+  if (urls.length > 0) {
+    createData.url = urls;
+  }
+
+  if (contextWindow.normalBounds) {
+    createData.left = contextWindow.normalBounds.left;
+    createData.top = contextWindow.normalBounds.top;
+    createData.width = contextWindow.normalBounds.width;
+    createData.height = contextWindow.normalBounds.height;
+  }
+
+  const created = await chrome.windows.create(createData);
+
+  if (!created || created.id === undefined) {
     throw new Error("Chrome did not return a window id");
   }
 
@@ -395,6 +472,8 @@ async function createChromeWindowFromSnapshot(
 
   const refreshedTabs = await chrome.tabs.query({ windowId: created.id });
   contextWindow.tabs = snapshotTabs(refreshedTabs);
+
+  await restoreWindowLayout(contextWindow, focused);
 }
 
 async function restoreMissingWindows(
@@ -422,10 +501,7 @@ async function saveCurrentWindowState(
   const bound = findBoundWindow(contexts, bindings, window.id);
   if (!bound) return;
 
-  bound.contextWindow.preferredState = preferredStateFromChrome(
-    window.state,
-    bound.contextWindow.preferredState
-  );
+  captureWindowLayout(bound.contextWindow, window);
   bound.contextWindow.updatedAt = now();
   bound.context.updatedAt = now();
 }
@@ -463,17 +539,13 @@ export async function switchContext(contextId: string): Promise<void> {
         (a.lastFocusedAt ?? a.updatedAt) - (b.lastFocusedAt ?? b.updatedAt)
     );
 
-  for (const contextWindow of targetWindows) {
-    await chrome.windows.update(contextWindow.windowId!, {
-      state: contextWindow.preferredState
-    });
-  }
-
   const focusWindow = targetWindows[targetWindows.length - 1];
 
-  if (focusWindow?.windowId !== undefined) {
-    await chrome.windows.update(focusWindow.windowId, { focused: true });
+  for (const contextWindow of targetWindows) {
+    await restoreWindowLayout(contextWindow, contextWindow.id === focusWindow?.id);
+  }
 
+  if (focusWindow?.windowId !== undefined) {
     const timestamp = now();
     focusWindow.lastFocusedAt = timestamp;
     target.lastFocusedAt = timestamp;
@@ -574,11 +646,13 @@ export async function restoreContext(contextId: string): Promise<void> {
     )
     .at(-1);
 
-  if (focusWindow?.windowId !== undefined) {
-    await chrome.windows.update(focusWindow.windowId, {
-      state: focusWindow.preferredState,
-      focused: true
-    });
+  for (const contextWindow of context.windows) {
+    if (contextWindow.windowId !== undefined) {
+      await restoreWindowLayout(
+        contextWindow,
+        contextWindow.id === focusWindow?.id
+      );
+    }
   }
 
   context.updatedAt = now();
@@ -587,11 +661,39 @@ export async function restoreContext(contextId: string): Promise<void> {
   await saveBindings(bindings);
 }
 
+export async function addChromeWindowToContext(
+  windowId: number,
+  targetContextId: string
+): Promise<void> {
+  await syncWindow(windowId);
+
+  const bindings = await loadBindings();
+  const binding = bindings[String(windowId)];
+
+  if (!binding) {
+    throw new Error("Chrome window is not registered");
+  }
+
+  await addWindowToContext(
+    binding.contextId,
+    binding.contextWindowId,
+    targetContextId
+  );
+}
+
 export async function addWindowToContext(
   sourceContextId: string,
   contextWindowId: string,
-  targetContextId: string
+  targetContextId: string,
+  options: {
+    updateOrganizationTarget?: boolean;
+    recordUndo?: boolean;
+  } = {}
 ): Promise<void> {
+  const {
+    updateOrganizationTarget = true,
+    recordUndo = true
+  } = options;
   if (sourceContextId === targetContextId) {
     throw new Error("Window already belongs to this context");
   }
@@ -652,8 +754,93 @@ export async function addWindowToContext(
 
   await saveContexts(contexts);
   await saveBindings(bindings);
-  await saveOrganizationTargetId(target.id);
-  await saveUndoWindowMove(undo);
+
+  if (updateOrganizationTarget) {
+    await saveOrganizationTargetId(target.id);
+  }
+
+  if (recordUndo) {
+    await saveUndoWindowMove(undo);
+  }
+}
+
+export async function inheritDetachedTabWindow(
+  oldWindowId: number,
+  sourceContextId: string,
+  sourceContextWindowId: string,
+  newWindowId: number,
+  sourceWindowHadRemainingTabs: boolean
+): Promise<void> {
+  await syncWindow(newWindowId);
+
+  const contexts = await loadContexts();
+  const bindings = await loadBindings();
+  const sourceContext = contexts.find((context) => context.id === sourceContextId);
+  const sourceContextWindow = sourceContext?.windows.find(
+    (window) => window.id === sourceContextWindowId
+  );
+  const destinationBinding = bindings[String(newWindowId)];
+
+  if (!sourceContext || !sourceContextWindow || !destinationBinding) {
+    return;
+  }
+
+  if (destinationBinding.contextId === sourceContextId) {
+    return;
+  }
+
+  if (sourceWindowHadRemainingTabs) {
+    await addWindowToContext(
+      destinationBinding.contextId,
+      destinationBinding.contextWindowId,
+      sourceContextId,
+      {
+        updateOrganizationTarget: false,
+        recordUndo: false
+      }
+    );
+    return;
+  }
+
+  const destinationContextIndex = contexts.findIndex(
+    (context) => context.id === destinationBinding.contextId
+  );
+  if (destinationContextIndex < 0) return;
+
+  const destinationContext = contexts[destinationContextIndex];
+  const destinationWindowIndex = destinationContext.windows.findIndex(
+    (window) => window.id === destinationBinding.contextWindowId
+  );
+  if (destinationWindowIndex < 0) return;
+
+  const [destinationWindow] = destinationContext.windows.splice(
+    destinationWindowIndex,
+    1
+  );
+
+  sourceContextWindow.state = destinationWindow.state;
+  sourceContextWindow.windowId = newWindowId;
+  sourceContextWindow.tabs = destinationWindow.tabs;
+  sourceContextWindow.preferredState = destinationWindow.preferredState;
+  sourceContextWindow.normalBounds = destinationWindow.normalBounds;
+  sourceContextWindow.updatedAt = now();
+  sourceContextWindow.lastFocusedAt = destinationWindow.lastFocusedAt;
+  sourceContext.updatedAt = now();
+
+  delete bindings[String(oldWindowId)];
+  bindings[String(newWindowId)] = {
+    contextId: sourceContext.id,
+    contextWindowId: sourceContextWindow.id
+  };
+
+  if (destinationContext.windows.length === 0) {
+    contexts.splice(destinationContextIndex, 1);
+  } else {
+    destinationContext.updatedAt = now();
+  }
+
+  await saveContexts(contexts);
+  await saveBindings(bindings);
 }
 
 export async function undoLastWindowMove(): Promise<void> {

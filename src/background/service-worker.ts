@@ -1,5 +1,11 @@
+import type { WindowBinding } from "../domain/context";
 import type { ManagerRequest, ManagerResponse } from "../domain/messages";
 import {
+  handleTabContextMenuClick,
+  rebuildTabContextMenus
+} from "../services/tab-context-menu";
+import {
+  loadBindings,
   loadContexts,
   loadOrganizationTargetId,
   loadUndoWindowMove,
@@ -9,6 +15,7 @@ import {
   addWindowToContext,
   ensureBootstrapped,
   focusTab,
+  inheritDetachedTabWindow,
   markWindowShelved,
   reconcileAllWindows,
   renameContext,
@@ -18,6 +25,14 @@ import {
   syncWindow,
   undoLastWindowMove
 } from "../services/window-reconciler";
+
+interface PendingDetachedTab {
+  sourceBinding: WindowBinding;
+  oldWindowId: number;
+  sourceWindowHadRemainingTabs: boolean;
+}
+
+const pendingDetachedTabs = new Map<number, PendingDetachedTab>();
 
 let queue: Promise<unknown> = Promise.resolve();
 
@@ -56,12 +71,18 @@ async function managerState(): Promise<ManagerResponse> {
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  void enqueue(() => reconcileAllWindows());
+  void enqueue(async () => {
+    await reconcileAllWindows();
+    await rebuildTabContextMenus();
+  });
 });
 
 chrome.runtime.onStartup.addListener(() => {
   setTimeout(() => {
-    void enqueue(() => reconcileAllWindows());
+    void enqueue(async () => {
+      await reconcileAllWindows();
+      await rebuildTabContextMenus();
+    });
   }, 1000);
 });
 
@@ -69,7 +90,10 @@ chrome.windows.onCreated.addListener((window) => {
   if (window.type !== "normal" || window.id === undefined) return;
 
   setTimeout(() => {
-    sync(window.id);
+    void enqueue(async () => {
+      await syncWindow(window.id!);
+      await rebuildTabContextMenus();
+    });
   }, 150);
 });
 
@@ -79,15 +103,101 @@ chrome.windows.onRemoved.addListener((windowId) => {
 
 chrome.windows.onFocusChanged.addListener((windowId) => {
   if (windowId === chrome.windows.WINDOW_ID_NONE) return;
-  sync(windowId, true);
+
+  void enqueue(async () => {
+    await syncWindow(windowId, { touchedFocus: true });
+    await rebuildTabContextMenus(windowId);
+  });
+});
+
+chrome.windows.onBoundsChanged.addListener((window) => {
+  if (window.id === undefined || window.type !== "normal") return;
+  sync(window.id);
+});
+
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  void enqueue(async () => {
+    try {
+      await handleTabContextMenuClick(info.menuItemId, tab);
+    } catch (error) {
+      console.error("Context menu action failed", error);
+    }
+  });
 });
 
 chrome.tabs.onCreated.addListener((tab) => sync(tab.windowId));
 chrome.tabs.onUpdated.addListener((_tabId, _changeInfo, tab) => sync(tab.windowId));
 chrome.tabs.onRemoved.addListener((_tabId, removeInfo) => sync(removeInfo.windowId));
 chrome.tabs.onMoved.addListener((_tabId, moveInfo) => sync(moveInfo.windowId));
-chrome.tabs.onAttached.addListener((_tabId, attachInfo) => sync(attachInfo.newWindowId));
-chrome.tabs.onDetached.addListener((_tabId, detachInfo) => sync(detachInfo.oldWindowId));
+
+chrome.tabs.onDetached.addListener((tabId, detachInfo) => {
+  void enqueue(async () => {
+    const bindings = await loadBindings();
+    const sourceBinding = bindings[String(detachInfo.oldWindowId)];
+
+    if (!sourceBinding) {
+      await syncWindow(detachInfo.oldWindowId);
+      return;
+    }
+
+    let sourceWindowHadRemainingTabs = false;
+
+    try {
+      const remainingTabs = await chrome.tabs.query({
+        windowId: detachInfo.oldWindowId
+      });
+      sourceWindowHadRemainingTabs = remainingTabs.length > 0;
+    } catch {
+      sourceWindowHadRemainingTabs = false;
+    }
+
+    pendingDetachedTabs.set(tabId, {
+      sourceBinding,
+      oldWindowId: detachInfo.oldWindowId,
+      sourceWindowHadRemainingTabs
+    });
+
+    if (sourceWindowHadRemainingTabs) {
+      await syncWindow(detachInfo.oldWindowId);
+    }
+  });
+});
+
+chrome.tabs.onAttached.addListener((tabId, attachInfo) => {
+  void enqueue(async () => {
+    const pending = pendingDetachedTabs.get(tabId);
+    pendingDetachedTabs.delete(tabId);
+
+    let destinationTabs: chrome.tabs.Tab[] = [];
+
+    try {
+      destinationTabs = await chrome.tabs.query({
+        windowId: attachInfo.newWindowId
+      });
+    } catch {
+      return;
+    }
+
+    const becameNewWindow =
+      destinationTabs.length === 1 && destinationTabs[0]?.id === tabId;
+
+    if (!pending || !becameNewWindow) {
+      await syncWindow(attachInfo.newWindowId);
+      return;
+    }
+
+    await inheritDetachedTabWindow(
+      pending.oldWindowId,
+      pending.sourceBinding.contextId,
+      pending.sourceBinding.contextWindowId,
+      attachInfo.newWindowId,
+      pending.sourceWindowHadRemainingTabs
+    );
+
+    await rebuildTabContextMenus(attachInfo.newWindowId);
+  });
+});
+
 chrome.tabs.onActivated.addListener((activeInfo) => sync(activeInfo.windowId));
 
 chrome.runtime.onMessage.addListener(
@@ -137,6 +247,7 @@ chrome.runtime.onMessage.addListener(
             break;
         }
 
+        await rebuildTabContextMenus();
         return managerState();
       } catch (error) {
         return {
