@@ -13,6 +13,7 @@ import {
 } from "../services/context-store";
 import {
   addWindowToContext,
+  createContextFromWindow,
   ensureBootstrapped,
   focusTab,
   inheritDetachedTabWindow,
@@ -235,6 +236,13 @@ chrome.runtime.onMessage.addListener(
               request.sourceContextId,
               request.contextWindowId,
               request.targetContextId
+            );
+            break;
+
+          case "contexts:create-from-window":
+            await createContextFromWindow(
+              request.sourceContextId,
+              request.contextWindowId
             );
             break;
 
