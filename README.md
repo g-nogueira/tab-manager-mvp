@@ -76,3 +76,15 @@ Context switching also persists a normal window's exact `left`, `top`, `width` a
 6. Switch to another context, then switch back and verify both windows return to their previous geometry.
 7. Repeat with one window maximized and one normal.
 8. Manually resize/move a normal window, switch away/back, and confirm the latest committed bounds are restored.
+
+
+## Create a context from an inherited window
+
+When a tab is detached into a new Chrome window, that window automatically inherits the source context. If that inference is not what you want, the window can now be split back out explicitly:
+
+- tab right-click → **Create new context from this window**
+- grouped-window `⋮` menu → **Create new context from this window**
+
+The action is only shown when the current context contains multiple windows. It keeps the existing Chrome window, tabs, bounds and persisted window identity intact; only the context association changes.
+
+The new context becomes the current organizing target. The action is reversible through the existing **Undo** flow, and Undo removes the temporary empty context when appropriate.
