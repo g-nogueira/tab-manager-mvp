@@ -729,6 +729,80 @@ export async function restoreContext(contextId: string): Promise<void> {
   await saveBindings(bindings);
 }
 
+export async function createContextFromChromeWindow(
+  windowId: number
+): Promise<void> {
+  await syncWindow(windowId);
+
+  const bindings = await loadBindings();
+  const binding = bindings[String(windowId)];
+
+  if (!binding) {
+    throw new Error("Chrome window is not registered");
+  }
+
+  await createContextFromWindow(
+    binding.contextId,
+    binding.contextWindowId
+  );
+}
+
+export async function createContextFromWindow(
+  sourceContextId: string,
+  contextWindowId: string
+): Promise<void> {
+  const contexts = await loadContexts();
+  const bindings = await loadBindings();
+  const source = contexts.find((context) => context.id === sourceContextId);
+
+  if (!source) throw new Error("Source context not found");
+
+  if (source.windows.length <= 1) {
+    throw new Error("Window is already its own context");
+  }
+
+  const sourceWindowIndex = source.windows.findIndex(
+    (window) => window.id === contextWindowId
+  );
+
+  if (sourceWindowIndex < 0) throw new Error("Window not found");
+
+  const [contextWindow] = source.windows.splice(sourceWindowIndex, 1);
+  const timestamp = now();
+  const newContext: BrowserContext = {
+    id: newId(),
+    windows: [contextWindow],
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    lastFocusedAt: contextWindow.lastFocusedAt
+  };
+
+  source.updatedAt = timestamp;
+  contexts.push(newContext);
+
+  if (contextWindow.windowId !== undefined) {
+    bindings[String(contextWindow.windowId)] = {
+      contextId: newContext.id,
+      contextWindowId: contextWindow.id
+    };
+  }
+
+  const undo: UndoWindowMove = {
+    sourceContextId: source.id,
+    sourceContextName: source.name,
+    sourceContextCreatedAt: source.createdAt,
+    sourceContextLastFocusedAt: source.lastFocusedAt,
+    sourceWindowIndex,
+    contextWindowId: contextWindow.id,
+    targetContextId: newContext.id
+  };
+
+  await saveContexts(contexts);
+  await saveBindings(bindings);
+  await saveOrganizationTargetId(newContext.id);
+  await saveUndoWindowMove(undo);
+}
+
 export async function addChromeWindowToContext(
   windowId: number,
   targetContextId: string
@@ -958,7 +1032,20 @@ export async function undoLastWindowMove(): Promise<void> {
     };
   }
 
+  if (target.windows.length === 0) {
+    const targetIndex = contexts.findIndex((context) => context.id === target.id);
+    if (targetIndex >= 0) {
+      contexts.splice(targetIndex, 1);
+    }
+  }
+
   await saveContexts(contexts);
   await saveBindings(bindings);
+
+  const organizationTargetId = await loadOrganizationTargetId();
+  if (organizationTargetId === target.id && target.windows.length === 0) {
+    await saveOrganizationTargetId(source.id);
+  }
+
   await saveUndoWindowMove(undefined);
 }
