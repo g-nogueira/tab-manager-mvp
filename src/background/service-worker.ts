@@ -278,6 +278,13 @@ chrome.runtime.onMessage.addListener(
           case "tabs:focus":
             await focusTab(request.contextId, request.tabId);
             break;
+
+          case "tabs:close": {
+            const tab = await chrome.tabs.get(request.tabId);
+            await chrome.tabs.remove(request.tabId);
+            await syncWindow(tab.windowId);
+            break;
+          }
         }
 
         await rebuildTabContextMenus();
