@@ -103,3 +103,28 @@ Shelved contexts now have a lightweight lifecycle so the popup does not grow ind
 - Unpinning a context starts a fresh 30-day retention window rather than deleting an old pinned context immediately.
 
 Automatic cleanup only affects fully shelved contexts. Active contexts are never removed by the lifecycle cleanup.
+
+
+## Current window orientation and tab cleanup
+
+When the manager popup opens, it identifies the Chrome window that opened it with `chrome.windows.getCurrent()` and uses the existing live `windowId` bindings for exact matching.
+
+- the current context is shown first in **Active**;
+- within a multi-window context, the current window is shown first;
+- the current context/window gets an explicit **Current window** badge and stronger border;
+- the current window shows all of its tabs instead of the normal 12-tab preview limit;
+- active tab rows expose an inline **×** action on hover/focus to close the real Chrome tab;
+- closing a tab refreshes the window snapshot immediately so the popup can be used as a lightweight tab-cleanup surface.
+
+No URL/title heuristics are used to identify the current window.
+
+### Test pass
+
+1. Open the extension from a Chrome window whose tabs are easy to recognize.
+2. Confirm its context appears first in **Active**.
+3. Confirm the exact window is marked **Current window**.
+4. In a multi-window context, confirm the current member window appears first.
+5. Use a current window with more than 12 tabs and confirm all tabs are visible.
+6. Hover a tab and click **×**; verify the real Chrome tab closes and disappears from the popup.
+7. Open the popup from another Chrome window and confirm the highlight moves to that window.
+8. Verify non-current windows still use the compact preview limit.
