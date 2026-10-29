@@ -23,9 +23,35 @@
   let toastMessage = "";
   let toastUndoKind: "window-move" | "context-remove" | undefined;
   let showAllShelved = false;
+  let currentChromeWindowId: number | undefined;
 
   async function send(request: ManagerRequest): Promise<ManagerResponse> {
     return chrome.runtime.sendMessage(request) as Promise<ManagerResponse>;
+  }
+
+  function isCurrentWindow(window: ContextWindow): boolean {
+    return (
+      currentChromeWindowId !== undefined &&
+      window.windowId === currentChromeWindowId
+    );
+  }
+
+  function contextContainsCurrentWindow(context: BrowserContext): boolean {
+    return context.windows.some(isCurrentWindow);
+  }
+
+  function orderedWindows(context: BrowserContext): ContextWindow[] {
+    return [...context.windows].sort((a, b) => {
+      if (isCurrentWindow(a) !== isCurrentWindow(b)) {
+        return isCurrentWindow(a) ? -1 : 1;
+      }
+
+      if (a.state !== b.state) {
+        return a.state === "active" ? -1 : 1;
+      }
+
+      return 0;
+    });
   }
 
   function contextIsActive(context: BrowserContext): boolean {
@@ -142,34 +168,89 @@
     return window.name ?? fallbackWindowName(window);
   }
 
-  function contextMatches(context: BrowserContext): boolean {
-    const normalized = query.trim().toLowerCase();
-    if (!normalized) return true;
-
-    if (contextName(context).toLowerCase().includes(normalized)) return true;
-
-    return context.windows.some((window) => {
-      if ((window.name ?? "").toLowerCase().includes(normalized)) return true;
-
-      return window.tabs.some(
-        (tab) =>
-          tab.title.toLowerCase().includes(normalized) ||
-          tab.url.toLowerCase().includes(normalized)
-      );
-    });
+  function contextNameMatches(
+    context: BrowserContext,
+    searchTerm: string
+  ): boolean {
+    return Boolean(
+      searchTerm &&
+        contextName(context).toLowerCase().includes(searchTerm)
+    );
   }
 
-  function matchingTabs(window: ContextWindow): TabSnapshot[] {
-    const normalized = query.trim().toLowerCase();
-    if (!normalized) return window.tabs.slice(0, 12);
+  function windowNameMatches(
+    context: BrowserContext,
+    window: ContextWindow,
+    searchTerm: string
+  ): boolean {
+    if (!searchTerm) return false;
 
-    const matches = window.tabs.filter(
-      (tab) =>
-        tab.title.toLowerCase().includes(normalized) ||
-        tab.url.toLowerCase().includes(normalized)
+    const explicitOrFallbackName =
+      window.name ?? fallbackWindowName(window);
+
+    return explicitOrFallbackName.toLowerCase().includes(searchTerm);
+  }
+
+  function tabMatches(tab: TabSnapshot, searchTerm: string): boolean {
+    if (!searchTerm) return true;
+
+    return (
+      tab.title.toLowerCase().includes(searchTerm) ||
+      tab.url.toLowerCase().includes(searchTerm)
     );
+  }
 
-    return matches.length > 0 ? matches : window.tabs.slice(0, 12);
+  function contextMatches(
+    context: BrowserContext,
+    searchTerm: string
+  ): boolean {
+    if (!searchTerm) return true;
+
+    if (contextNameMatches(context, searchTerm)) return true;
+
+    return context.windows.some(
+      (window) =>
+        windowNameMatches(context, window, searchTerm) ||
+        window.tabs.some((tab) => tabMatches(tab, searchTerm))
+    );
+  }
+
+  function visibleWindows(
+    context: BrowserContext,
+    searchTerm: string
+  ): ContextWindow[] {
+    const windows = orderedWindows(context);
+
+    if (!searchTerm || contextNameMatches(context, searchTerm)) {
+      return windows;
+    }
+
+    return windows.filter(
+      (window) =>
+        windowNameMatches(context, window, searchTerm) ||
+        window.tabs.some((tab) => tabMatches(tab, searchTerm))
+    );
+  }
+
+  function matchingTabs(
+    context: BrowserContext,
+    window: ContextWindow,
+    searchTerm: string
+  ): TabSnapshot[] {
+    if (!searchTerm) {
+      return isCurrentWindow(window) ? window.tabs : window.tabs.slice(0, 12);
+    }
+
+    // A context/window-name hit keeps the normal hierarchy visible. A tab-only
+    // hit is strict: show only the tabs that actually matched the query.
+    if (
+      contextNameMatches(context, searchTerm) ||
+      windowNameMatches(context, window, searchTerm)
+    ) {
+      return isCurrentWindow(window) ? window.tabs : window.tabs.slice(0, 12);
+    }
+
+    return window.tabs.filter((tab) => tabMatches(tab, searchTerm));
   }
 
   function beginEdit(context: BrowserContext): void {
@@ -274,6 +355,12 @@
     }
   }
 
+  async function closeTab(tab: TabSnapshot): Promise<void> {
+    if (tab.tabId === undefined) return;
+
+    await run({ type: "tabs:close", tabId: tab.tabId });
+  }
+
   async function undoWindowMove(): Promise<void> {
     if (await run({ type: "contexts:undo-window-move" })) {
       toastMessage = "Move undone.";
@@ -316,12 +403,25 @@
     await run({ type: "contexts:shelve", contextId });
   }
 
+  $: searchTerm = query.trim().toLowerCase();
+
   $: targetContext = organizationTargetId
     ? contexts.find((context) => context.id === organizationTargetId)
     : undefined;
 
-  $: visibleContexts = contexts.filter(contextMatches);
-  $: activeContexts = visibleContexts.filter(contextIsActive);
+  // Pass searchTerm explicitly so Svelte tracks query changes as a dependency.
+  $: visibleContexts = contexts.filter((context) =>
+    contextMatches(context, searchTerm)
+  );
+  $: activeContexts = visibleContexts
+    .filter(contextIsActive)
+    .sort((a, b) => {
+      if (contextContainsCurrentWindow(a) !== contextContainsCurrentWindow(b)) {
+        return contextContainsCurrentWindow(a) ? -1 : 1;
+      }
+
+      return 0;
+    });
   $: shelvedContexts = visibleContexts.filter((context) => !contextIsActive(context));
   $: pinnedShelvedContexts = shelvedContexts.filter((context) => context.pinned);
   $: unpinnedShelvedContexts = shelvedContexts.filter((context) => !context.pinned);
@@ -333,7 +433,16 @@
     Math.max(0, unpinnedShelvedContexts.length - 6);
 
   onMount(() => {
-    void refresh();
+    void (async () => {
+      try {
+        const currentWindow = await chrome.windows.getCurrent();
+        currentChromeWindowId = currentWindow.id;
+      } catch {
+        currentChromeWindowId = undefined;
+      }
+
+      await refresh();
+    })();
 
     const handleChange = () => void refresh();
     const handleDocumentClick = () => closeMenus();
@@ -398,7 +507,10 @@
 
       <div class="grid">
         {#each activeContexts as context (context.id)}
-          <article class="card active-card">
+          <article
+            class="card active-card"
+            class:current-context-card={contextContainsCurrentWindow(context)}
+          >
             <div class="card-heading">
               {#if editingId === context.id}
                 <div class="edit-row">
@@ -422,6 +534,9 @@
                 >
                   <strong>{contextName(context)}</strong>
                 </button>
+                {#if context.windows.length === 1 && isCurrentWindow(context.windows[0])}
+                  <span class="current-window-badge">Current window</span>
+                {/if}
                 <button class="icon-button" title="Rename context" on:click={() => beginEdit(context)}>✎</button>
                 <div class="menu-anchor">
                   <button
@@ -482,37 +597,53 @@
 
             {#if context.windows.length === 1}
               {@const onlyWindow = context.windows[0]}
-              <div class="tabs">
-                {#each matchingTabs(onlyWindow) as tab}
-                  <button
-                    class="tab"
-                    title={tab.title}
-                    disabled={tab.tabId === undefined || onlyWindow.state !== "active"}
-                    on:click={() =>
-                      tab.tabId !== undefined &&
-                      run({
-                        type: "tabs:focus",
-                        contextId: context.id,
-                        tabId: tab.tabId
-                      })}
-                  >
-                    {#if tab.favIconUrl}
-                      <img src={tab.favIconUrl} alt="" />
-                    {:else}
-                      <span class="fallback-icon">•</span>
-                    {/if}
-                    <span>{tab.title}</span>
-                  </button>
+              <div class="tabs" data-current-window={isCurrentWindow(onlyWindow) || undefined}>
+                {#each matchingTabs(context, onlyWindow, searchTerm) as tab}
+                  <div class="tab-row">
+                    <button
+                      class="tab tab-main"
+                      title={tab.title}
+                      disabled={tab.tabId === undefined || onlyWindow.state !== "active"}
+                      on:click={() =>
+                        tab.tabId !== undefined &&
+                        run({
+                          type: "tabs:focus",
+                          contextId: context.id,
+                          tabId: tab.tabId
+                        })}
+                    >
+                      {#if tab.favIconUrl}
+                        <img src={tab.favIconUrl} alt="" />
+                      {:else}
+                        <span class="fallback-icon">•</span>
+                      {/if}
+                      <span>{tab.title}</span>
+                    </button>
+                    <button
+                      class="tab-close"
+                      title="Close tab"
+                      aria-label={`Close ${tab.title}`}
+                      disabled={tab.tabId === undefined}
+                      on:click={() => closeTab(tab)}
+                    >×</button>
+                  </div>
                 {/each}
               </div>
             {:else}
               <div class="windows">
-                {#each context.windows as contextWindow (contextWindow.id)}
-                  <div class="window-block">
+                {#each visibleWindows(context, searchTerm) as contextWindow (contextWindow.id)}
+                  <div
+                    class="window-block"
+                    class:current-window-block={isCurrentWindow(contextWindow)}
+                    data-current-window={isCurrentWindow(contextWindow) || undefined}
+                  >
                     <div class="window-heading">
                       <div class="window-title">
                         <strong>{windowName(context, contextWindow)}</strong>
                         <span>{contextWindow.tabs.length} {contextWindow.tabs.length === 1 ? "tab" : "tabs"}</span>
+                        {#if isCurrentWindow(contextWindow)}
+                          <span class="current-window-badge">Current window</span>
+                        {/if}
                         {#if contextWindow.state === "shelved"}
                           <span>closed</span>
                         {/if}
@@ -574,26 +705,35 @@
                     </div>
 
                     <div class="tabs compact-tabs">
-                      {#each matchingTabs(contextWindow) as tab}
-                        <button
-                          class="tab"
-                          title={tab.title}
-                          disabled={tab.tabId === undefined || contextWindow.state !== "active"}
-                          on:click={() =>
-                            tab.tabId !== undefined &&
-                            run({
-                              type: "tabs:focus",
-                              contextId: context.id,
-                              tabId: tab.tabId
-                            })}
-                        >
-                          {#if tab.favIconUrl}
-                            <img src={tab.favIconUrl} alt="" />
-                          {:else}
-                            <span class="fallback-icon">•</span>
-                          {/if}
-                          <span>{tab.title}</span>
-                        </button>
+                      {#each matchingTabs(context, contextWindow, searchTerm) as tab}
+                        <div class="tab-row">
+                          <button
+                            class="tab tab-main"
+                            title={tab.title}
+                            disabled={tab.tabId === undefined || contextWindow.state !== "active"}
+                            on:click={() =>
+                              tab.tabId !== undefined &&
+                              run({
+                                type: "tabs:focus",
+                                contextId: context.id,
+                                tabId: tab.tabId
+                              })}
+                          >
+                            {#if tab.favIconUrl}
+                              <img src={tab.favIconUrl} alt="" />
+                            {:else}
+                              <span class="fallback-icon">•</span>
+                            {/if}
+                            <span>{tab.title}</span>
+                          </button>
+                          <button
+                            class="tab-close"
+                            title="Close tab"
+                            aria-label={`Close ${tab.title}`}
+                            disabled={tab.tabId === undefined}
+                            on:click={() => closeTab(tab)}
+                          >×</button>
+                        </div>
                       {/each}
                     </div>
                   </div>
@@ -658,7 +798,7 @@
               {/if}
             </div>
 
-            {#each context.windows as contextWindow (contextWindow.id)}
+            {#each visibleWindows(context, searchTerm) as contextWindow (contextWindow.id)}
               {#if context.windows.length > 1}
                 <div class="window-heading shelved-window-heading">
                   <div class="window-title">
@@ -669,7 +809,7 @@
               {/if}
 
               <div class="tabs compact-tabs">
-                {#each matchingTabs(contextWindow) as tab}
+                {#each matchingTabs(context, contextWindow, searchTerm) as tab}
                   <div class="tab static-tab" title={tab.title}>
                     {#if tab.favIconUrl}
                       <img src={tab.favIconUrl} alt="" />
@@ -860,6 +1000,30 @@
 
   .active-card {
     border-top-color: #337f86;
+  }
+
+  .current-context-card {
+    border-color: #4c9fa6;
+    box-shadow:
+      0 0 0 1px rgb(76 159 166 / 20%),
+      0 4px 16px rgb(0 0 0 / 14%);
+  }
+
+  .current-window-block {
+    border-color: #4c9fa6;
+    background: #172a30;
+  }
+
+  .current-window-badge {
+    flex: 0 0 auto;
+    padding: 2px 5px;
+    border: 1px solid #4c8389;
+    border-radius: 999px;
+    color: #a9e0e4;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
   }
 
   .card-heading {
@@ -1053,6 +1217,18 @@
     margin-top: 6px;
   }
 
+  .tab-row {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    border-radius: 6px;
+  }
+
+  .tab-row:hover,
+  .tab-row:focus-within {
+    background: #21363c;
+  }
+
   .tab {
     display: flex;
     align-items: center;
@@ -1067,12 +1243,42 @@
     text-align: left;
   }
 
+  .tab-main {
+    flex: 1;
+  }
+
+  .tab-close {
+    width: 27px;
+    height: 27px;
+    flex: 0 0 27px;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: #91a5aa;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .tab-row:hover .tab-close,
+  .tab-row:focus-within .tab-close {
+    opacity: 1;
+  }
+
+  .tab-close:hover:not(:disabled) {
+    background: #314950;
+    color: #f2fbfc;
+  }
+
+  .tab-close:disabled {
+    cursor: default;
+  }
+
   button.tab {
     cursor: pointer;
   }
 
   button.tab:hover:not(:disabled) {
-    background: #21363c;
+    background: transparent;
   }
 
   button.tab:disabled {

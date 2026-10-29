@@ -21,7 +21,8 @@ export type ManagerRequest =
       contextWindowId: string;
     }
   | { type: "contexts:undo-window-move" }
-  | { type: "tabs:focus"; contextId: string; tabId: number };
+  | { type: "tabs:focus"; contextId: string; tabId: number }
+  | { type: "tabs:close"; tabId: number };
 
 export type ManagerResponse =
   | {
