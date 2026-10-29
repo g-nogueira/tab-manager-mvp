@@ -168,85 +168,89 @@
     return window.name ?? fallbackWindowName(window);
   }
 
-  function normalizedQuery(): string {
-    return query.trim().toLowerCase();
-  }
-
-  function contextNameMatches(context: BrowserContext): boolean {
-    const normalized = normalizedQuery();
+  function contextNameMatches(
+    context: BrowserContext,
+    searchTerm: string
+  ): boolean {
     return Boolean(
-      normalized && contextName(context).toLowerCase().includes(normalized)
+      searchTerm &&
+        contextName(context).toLowerCase().includes(searchTerm)
     );
   }
 
   function windowNameMatches(
     context: BrowserContext,
-    window: ContextWindow
+    window: ContextWindow,
+    searchTerm: string
   ): boolean {
-    const normalized = normalizedQuery();
-    if (!normalized) return false;
+    if (!searchTerm) return false;
 
     const explicitOrFallbackName =
       window.name ?? fallbackWindowName(window);
 
-    return explicitOrFallbackName.toLowerCase().includes(normalized);
+    return explicitOrFallbackName.toLowerCase().includes(searchTerm);
   }
 
-  function tabMatches(tab: TabSnapshot): boolean {
-    const normalized = normalizedQuery();
-    if (!normalized) return true;
+  function tabMatches(tab: TabSnapshot, searchTerm: string): boolean {
+    if (!searchTerm) return true;
 
     return (
-      tab.title.toLowerCase().includes(normalized) ||
-      tab.url.toLowerCase().includes(normalized)
+      tab.title.toLowerCase().includes(searchTerm) ||
+      tab.url.toLowerCase().includes(searchTerm)
     );
   }
 
-  function contextMatches(context: BrowserContext): boolean {
-    const normalized = normalizedQuery();
-    if (!normalized) return true;
+  function contextMatches(
+    context: BrowserContext,
+    searchTerm: string
+  ): boolean {
+    if (!searchTerm) return true;
 
-    if (contextNameMatches(context)) return true;
+    if (contextNameMatches(context, searchTerm)) return true;
 
     return context.windows.some(
       (window) =>
-        windowNameMatches(context, window) ||
-        window.tabs.some(tabMatches)
+        windowNameMatches(context, window, searchTerm) ||
+        window.tabs.some((tab) => tabMatches(tab, searchTerm))
     );
   }
 
-  function visibleWindows(context: BrowserContext): ContextWindow[] {
+  function visibleWindows(
+    context: BrowserContext,
+    searchTerm: string
+  ): ContextWindow[] {
     const windows = orderedWindows(context);
-    const normalized = normalizedQuery();
 
-    if (!normalized || contextNameMatches(context)) {
+    if (!searchTerm || contextNameMatches(context, searchTerm)) {
       return windows;
     }
 
     return windows.filter(
       (window) =>
-        windowNameMatches(context, window) ||
-        window.tabs.some(tabMatches)
+        windowNameMatches(context, window, searchTerm) ||
+        window.tabs.some((tab) => tabMatches(tab, searchTerm))
     );
   }
 
   function matchingTabs(
     context: BrowserContext,
-    window: ContextWindow
+    window: ContextWindow,
+    searchTerm: string
   ): TabSnapshot[] {
-    const normalized = normalizedQuery();
-
-    if (!normalized) {
+    if (!searchTerm) {
       return isCurrentWindow(window) ? window.tabs : window.tabs.slice(0, 12);
     }
 
     // A context/window-name hit keeps the normal hierarchy visible. A tab-only
     // hit is strict: show only the tabs that actually matched the query.
-    if (contextNameMatches(context) || windowNameMatches(context, window)) {
+    if (
+      contextNameMatches(context, searchTerm) ||
+      windowNameMatches(context, window, searchTerm)
+    ) {
       return isCurrentWindow(window) ? window.tabs : window.tabs.slice(0, 12);
     }
 
-    return window.tabs.filter(tabMatches);
+    return window.tabs.filter((tab) => tabMatches(tab, searchTerm));
   }
 
   function beginEdit(context: BrowserContext): void {
@@ -399,11 +403,16 @@
     await run({ type: "contexts:shelve", contextId });
   }
 
+  $: searchTerm = query.trim().toLowerCase();
+
   $: targetContext = organizationTargetId
     ? contexts.find((context) => context.id === organizationTargetId)
     : undefined;
 
-  $: visibleContexts = contexts.filter(contextMatches);
+  // Pass searchTerm explicitly so Svelte tracks query changes as a dependency.
+  $: visibleContexts = contexts.filter((context) =>
+    contextMatches(context, searchTerm)
+  );
   $: activeContexts = visibleContexts
     .filter(contextIsActive)
     .sort((a, b) => {
@@ -589,7 +598,7 @@
             {#if context.windows.length === 1}
               {@const onlyWindow = context.windows[0]}
               <div class="tabs" data-current-window={isCurrentWindow(onlyWindow) || undefined}>
-                {#each matchingTabs(context, onlyWindow) as tab}
+                {#each matchingTabs(context, onlyWindow, searchTerm) as tab}
                   <div class="tab-row">
                     <button
                       class="tab tab-main"
@@ -622,7 +631,7 @@
               </div>
             {:else}
               <div class="windows">
-                {#each visibleWindows(context) as contextWindow (contextWindow.id)}
+                {#each visibleWindows(context, searchTerm) as contextWindow (contextWindow.id)}
                   <div
                     class="window-block"
                     class:current-window-block={isCurrentWindow(contextWindow)}
@@ -696,7 +705,7 @@
                     </div>
 
                     <div class="tabs compact-tabs">
-                      {#each matchingTabs(context, contextWindow) as tab}
+                      {#each matchingTabs(context, contextWindow, searchTerm) as tab}
                         <div class="tab-row">
                           <button
                             class="tab tab-main"
@@ -789,7 +798,7 @@
               {/if}
             </div>
 
-            {#each visibleWindows(context) as contextWindow (contextWindow.id)}
+            {#each visibleWindows(context, searchTerm) as contextWindow (contextWindow.id)}
               {#if context.windows.length > 1}
                 <div class="window-heading shelved-window-heading">
                   <div class="window-title">
@@ -800,7 +809,7 @@
               {/if}
 
               <div class="tabs compact-tabs">
-                {#each matchingTabs(context, contextWindow) as tab}
+                {#each matchingTabs(context, contextWindow, searchTerm) as tab}
                   <div class="tab static-tab" title={tab.title}>
                     {#if tab.favIconUrl}
                       <img src={tab.favIconUrl} alt="" />
