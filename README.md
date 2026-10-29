@@ -128,3 +128,15 @@ No URL/title heuristics are used to identify the current window.
 6. Hover a tab and click **×**; verify the real Chrome tab closes and disappears from the popup.
 7. Open the popup from another Chrome window and confirm the highlight moves to that window.
 8. Verify non-current windows still use the compact preview limit.
+
+
+## Manual window close semantics
+
+Closing a Chrome window now follows the context model instead of creating hidden `closed` members:
+
+- if the context has multiple windows, closing one window removes that window from the context;
+- if it is the context's only window, closing it shelves the whole context so it can still be restored;
+- closing the last tab in a window naturally follows the same rule through Chrome's window-close event;
+- legacy mixed active/`closed` member windows are pruned during reconciliation so they are not unexpectedly restored by a later context switch.
+
+Explicit **Shelve** remains different: it intentionally preserves all context windows for restoration.
