@@ -22,8 +22,8 @@ import {
   createContextFromWindow,
   ensureBootstrapped,
   focusTab,
+  handleWindowClosed,
   inheritDetachedTabWindow,
-  markWindowShelved,
   reconcileAllWindows,
   renameContext,
   restoreContext,
@@ -109,7 +109,7 @@ chrome.windows.onCreated.addListener((window) => {
 
 chrome.windows.onRemoved.addListener((windowId) => {
   void enqueue(async () => {
-    await markWindowShelved(windowId);
+    await handleWindowClosed(windowId);
     await cleanupShelvedContexts();
     await rebuildTabContextMenus();
   });
