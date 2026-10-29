@@ -168,37 +168,85 @@
     return window.name ?? fallbackWindowName(window);
   }
 
-  function contextMatches(context: BrowserContext): boolean {
-    const normalized = query.trim().toLowerCase();
-    if (!normalized) return true;
-
-    if (contextName(context).toLowerCase().includes(normalized)) return true;
-
-    return context.windows.some((window) => {
-      if ((window.name ?? "").toLowerCase().includes(normalized)) return true;
-
-      return window.tabs.some(
-        (tab) =>
-          tab.title.toLowerCase().includes(normalized) ||
-          tab.url.toLowerCase().includes(normalized)
-      );
-    });
+  function normalizedQuery(): string {
+    return query.trim().toLowerCase();
   }
 
-  function matchingTabs(window: ContextWindow): TabSnapshot[] {
-    const normalized = query.trim().toLowerCase();
+  function contextNameMatches(context: BrowserContext): boolean {
+    const normalized = normalizedQuery();
+    return Boolean(
+      normalized && contextName(context).toLowerCase().includes(normalized)
+    );
+  }
+
+  function windowNameMatches(
+    context: BrowserContext,
+    window: ContextWindow
+  ): boolean {
+    const normalized = normalizedQuery();
+    if (!normalized) return false;
+
+    const explicitOrFallbackName =
+      window.name ?? fallbackWindowName(window);
+
+    return explicitOrFallbackName.toLowerCase().includes(normalized);
+  }
+
+  function tabMatches(tab: TabSnapshot): boolean {
+    const normalized = normalizedQuery();
+    if (!normalized) return true;
+
+    return (
+      tab.title.toLowerCase().includes(normalized) ||
+      tab.url.toLowerCase().includes(normalized)
+    );
+  }
+
+  function contextMatches(context: BrowserContext): boolean {
+    const normalized = normalizedQuery();
+    if (!normalized) return true;
+
+    if (contextNameMatches(context)) return true;
+
+    return context.windows.some(
+      (window) =>
+        windowNameMatches(context, window) ||
+        window.tabs.some(tabMatches)
+    );
+  }
+
+  function visibleWindows(context: BrowserContext): ContextWindow[] {
+    const windows = orderedWindows(context);
+    const normalized = normalizedQuery();
+
+    if (!normalized || contextNameMatches(context)) {
+      return windows;
+    }
+
+    return windows.filter(
+      (window) =>
+        windowNameMatches(context, window) ||
+        window.tabs.some(tabMatches)
+    );
+  }
+
+  function matchingTabs(
+    context: BrowserContext,
+    window: ContextWindow
+  ): TabSnapshot[] {
+    const normalized = normalizedQuery();
 
     if (!normalized) {
       return isCurrentWindow(window) ? window.tabs : window.tabs.slice(0, 12);
     }
 
-    const matches = window.tabs.filter(
-      (tab) =>
-        tab.title.toLowerCase().includes(normalized) ||
-        tab.url.toLowerCase().includes(normalized)
-    );
+    // A context/window-name hit keeps the normal hierarchy visible. A tab-only
+    // hit is strict: show only the tabs that actually matched the query.
+    if (contextNameMatches(context) || windowNameMatches(context, window)) {
+      return isCurrentWindow(window) ? window.tabs : window.tabs.slice(0, 12);
+    }
 
-    return matches.length > 0 ? matches : window.tabs.slice(0, 12);
+    return window.tabs.filter(tabMatches);
   }
 
   function beginEdit(context: BrowserContext): void {
@@ -541,7 +589,7 @@
             {#if context.windows.length === 1}
               {@const onlyWindow = context.windows[0]}
               <div class="tabs" data-current-window={isCurrentWindow(onlyWindow) || undefined}>
-                {#each matchingTabs(onlyWindow) as tab}
+                {#each matchingTabs(context, onlyWindow) as tab}
                   <div class="tab-row">
                     <button
                       class="tab tab-main"
@@ -574,7 +622,7 @@
               </div>
             {:else}
               <div class="windows">
-                {#each orderedWindows(context) as contextWindow (contextWindow.id)}
+                {#each visibleWindows(context) as contextWindow (contextWindow.id)}
                   <div
                     class="window-block"
                     class:current-window-block={isCurrentWindow(contextWindow)}
@@ -648,7 +696,7 @@
                     </div>
 
                     <div class="tabs compact-tabs">
-                      {#each matchingTabs(contextWindow) as tab}
+                      {#each matchingTabs(context, contextWindow) as tab}
                         <div class="tab-row">
                           <button
                             class="tab tab-main"
@@ -741,7 +789,7 @@
               {/if}
             </div>
 
-            {#each context.windows as contextWindow (contextWindow.id)}
+            {#each visibleWindows(context) as contextWindow (contextWindow.id)}
               {#if context.windows.length > 1}
                 <div class="window-heading shelved-window-heading">
                   <div class="window-title">
@@ -752,7 +800,7 @@
               {/if}
 
               <div class="tabs compact-tabs">
-                {#each matchingTabs(contextWindow) as tab}
+                {#each matchingTabs(context, contextWindow) as tab}
                   <div class="tab static-tab" title={tab.title}>
                     {#if tab.favIconUrl}
                       <img src={tab.favIconUrl} alt="" />
