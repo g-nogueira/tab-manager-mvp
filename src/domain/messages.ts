@@ -6,6 +6,9 @@ export type ManagerRequest =
   | { type: "contexts:switch"; contextId: string }
   | { type: "contexts:shelve"; contextId: string }
   | { type: "contexts:restore"; contextId: string }
+  | { type: "contexts:set-pinned"; contextId: string; pinned: boolean }
+  | { type: "contexts:remove"; contextId: string }
+  | { type: "contexts:undo-remove" }
   | {
       type: "contexts:add-window";
       sourceContextId: string;

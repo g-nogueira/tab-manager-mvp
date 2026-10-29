@@ -35,6 +35,8 @@ export interface BrowserContext {
   id: string;
   name?: string;
   windows: ContextWindow[];
+  pinned: boolean;
+  shelvedAt?: number;
   createdAt: number;
   updatedAt: number;
   lastFocusedAt?: number;
@@ -57,4 +59,11 @@ export interface UndoWindowMove {
   sourceWindowIndex: number;
   contextWindowId: string;
   targetContextId: string;
+}
+
+
+export interface UndoContextRemoval {
+  context: BrowserContext;
+  index: number;
+  previousOrganizationTargetId?: string;
 }

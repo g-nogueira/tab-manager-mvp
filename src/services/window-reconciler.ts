@@ -211,6 +211,7 @@ function contextFromWindow(window: chrome.windows.Window): BrowserContext {
   return {
     id: newId(),
     windows: [contextWindow],
+    pinned: false,
     createdAt: timestamp,
     updatedAt: timestamp,
     lastFocusedAt: window.focused ? timestamp : undefined
@@ -343,6 +344,7 @@ export async function reconcileAllWindows(): Promise<void> {
 
     const { context, contextWindow } = match;
     contextWindow.state = "active";
+    context.shelvedAt = undefined;
     contextWindow.windowId = window.id;
     contextWindow.tabs = tabs;
     captureWindowLayout(contextWindow, window);
@@ -406,6 +408,7 @@ export async function syncWindow(
   } else {
     ({ context, contextWindow } = bound);
     contextWindow.state = "active";
+    context.shelvedAt = undefined;
     contextWindow.windowId = windowId;
     contextWindow.tabs = snapshotTabs(window.tabs);
     captureWindowLayout(contextWindow, window);
@@ -435,10 +438,20 @@ export async function markWindowShelved(windowId: number): Promise<void> {
   );
 
   if (context && contextWindow) {
+    const timestamp = now();
     contextWindow.state = "shelved";
     contextWindow.windowId = undefined;
-    contextWindow.updatedAt = now();
-    context.updatedAt = now();
+    contextWindow.updatedAt = timestamp;
+    context.updatedAt = timestamp;
+
+    if (
+      context.windows.every(
+        (window) => window.state === "shelved" || window.windowId === undefined
+      )
+    ) {
+      context.shelvedAt = timestamp;
+    }
+
     await saveContexts(contexts);
   }
 
@@ -543,6 +556,8 @@ async function restoreMissingWindows(
   context: BrowserContext,
   bindings: WindowBindings
 ): Promise<void> {
+  context.shelvedAt = undefined;
+
   for (const contextWindow of context.windows) {
     if (contextWindow.state === "active" && contextWindow.windowId !== undefined) {
       continue;
@@ -678,7 +693,9 @@ export async function shelveContext(contextId: string): Promise<void> {
     contextWindow.updatedAt = now();
   }
 
-  context.updatedAt = now();
+  const shelvedAt = now();
+  context.updatedAt = shelvedAt;
+  context.shelvedAt = shelvedAt;
 
   await saveContexts(contexts);
   await saveBindings(bindings);
@@ -773,12 +790,22 @@ export async function createContextFromWindow(
   const newContext: BrowserContext = {
     id: newId(),
     windows: [contextWindow],
+    pinned: false,
+    shelvedAt:
+      contextWindow.state === "shelved" || contextWindow.windowId === undefined
+        ? timestamp
+        : undefined,
     createdAt: timestamp,
     updatedAt: timestamp,
     lastFocusedAt: contextWindow.lastFocusedAt
   };
 
   source.updatedAt = timestamp;
+  source.shelvedAt = source.windows.every(
+    (window) => window.state === "shelved" || window.windowId === undefined
+  )
+    ? timestamp
+    : undefined;
   contexts.push(newContext);
 
   if (contextWindow.windowId !== undefined) {
@@ -883,6 +910,15 @@ export async function addWindowToContext(
   const timestamp = now();
   source.updatedAt = timestamp;
   target.updatedAt = timestamp;
+  target.shelvedAt =
+    contextWindow.state === "active" && contextWindow.windowId !== undefined
+      ? undefined
+      : target.shelvedAt;
+  source.shelvedAt = source.windows.every(
+    (window) => window.state === "shelved" || window.windowId === undefined
+  )
+    ? timestamp
+    : undefined;
 
   if (contextWindow.windowId !== undefined) {
     bindings[String(contextWindow.windowId)] = {
@@ -1010,6 +1046,7 @@ export async function undoLastWindowMove(): Promise<void> {
       id: undo.sourceContextId,
       name: undo.sourceContextName,
       windows: [],
+      pinned: false,
       createdAt: undo.sourceContextCreatedAt,
       updatedAt: now(),
       lastFocusedAt: undo.sourceContextLastFocusedAt
@@ -1023,8 +1060,18 @@ export async function undoLastWindowMove(): Promise<void> {
     contextWindow
   );
 
-  source.updatedAt = now();
-  target.updatedAt = now();
+  const undoTimestamp = now();
+  source.updatedAt = undoTimestamp;
+  target.updatedAt = undoTimestamp;
+  source.shelvedAt =
+    contextWindow.state === "active" && contextWindow.windowId !== undefined
+      ? undefined
+      : source.shelvedAt;
+  target.shelvedAt = target.windows.every(
+    (window) => window.state === "shelved" || window.windowId === undefined
+  )
+    ? undoTimestamp
+    : undefined;
 
   if (contextWindow.windowId !== undefined) {
     bindings[String(contextWindow.windowId)] = {

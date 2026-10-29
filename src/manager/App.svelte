@@ -21,6 +21,8 @@
   let openWindowMenuKey: string | undefined;
   let otherTargetsMenuKey: string | undefined;
   let toastMessage = "";
+  let toastUndoKind: "window-move" | "context-remove" | undefined;
+  let showAllShelved = false;
 
   async function send(request: ManagerRequest): Promise<ManagerResponse> {
     return chrome.runtime.sendMessage(request) as Promise<ManagerResponse>;
@@ -249,6 +251,7 @@
 
     if (success) {
       toastMessage = `Added "${sourceWindowName}" to ${targetName}.`;
+      toastUndoKind = "window-move";
     }
   }
 
@@ -267,13 +270,40 @@
 
     if (success) {
       toastMessage = `Created a new context from "${sourceWindowName}".`;
+      toastUndoKind = "window-move";
     }
   }
 
   async function undoWindowMove(): Promise<void> {
     if (await run({ type: "contexts:undo-window-move" })) {
       toastMessage = "Move undone.";
+      toastUndoKind = undefined;
     }
+  }
+
+  async function setPinned(contextId: string, pinned: boolean): Promise<void> {
+    await run({ type: "contexts:set-pinned", contextId, pinned });
+  }
+
+  async function removeShelved(context: BrowserContext): Promise<void> {
+    const name = contextName(context);
+
+    if (await run({ type: "contexts:remove", contextId: context.id })) {
+      toastMessage = `Removed "${name}".`;
+      toastUndoKind = "context-remove";
+    }
+  }
+
+  async function undoContextRemoval(): Promise<void> {
+    if (await run({ type: "contexts:undo-remove" })) {
+      toastMessage = "Removal undone.";
+      toastUndoKind = undefined;
+    }
+  }
+
+  function dismissToast(): void {
+    toastMessage = "";
+    toastUndoKind = undefined;
   }
 
   async function switchToContext(contextId: string): Promise<void> {
@@ -293,6 +323,14 @@
   $: visibleContexts = contexts.filter(contextMatches);
   $: activeContexts = visibleContexts.filter(contextIsActive);
   $: shelvedContexts = visibleContexts.filter((context) => !contextIsActive(context));
+  $: pinnedShelvedContexts = shelvedContexts.filter((context) => context.pinned);
+  $: unpinnedShelvedContexts = shelvedContexts.filter((context) => !context.pinned);
+  $: displayedShelvedContexts =
+    query.trim() || showAllShelved
+      ? [...pinnedShelvedContexts, ...unpinnedShelvedContexts]
+      : [...pinnedShelvedContexts, ...unpinnedShelvedContexts.slice(0, 6)];
+  $: hiddenShelvedCount =
+    Math.max(0, unpinnedShelvedContexts.length - 6);
 
   onMount(() => {
     void refresh();
@@ -592,7 +630,7 @@
       </div>
 
       <div class="grid">
-        {#each shelvedContexts as context (context.id)}
+        {#each displayedShelvedContexts as context (context.id)}
           <article class="card">
             <div class="card-heading">
               {#if editingId === context.id}
@@ -613,6 +651,9 @@
                 <button class="title-button" title="Rename context" on:click={() => beginEdit(context)}>
                   <strong>{contextName(context)}</strong>
                 </button>
+                {#if context.pinned}
+                  <span class="pin-label">Pinned</span>
+                {/if}
                 <button class="icon-button" title="Rename context" on:click={() => beginEdit(context)}>✎</button>
               {/if}
             </div>
@@ -649,13 +690,27 @@
                   {allTabs(context).length} {allTabs(context).length === 1 ? "tab" : "tabs"}
                 {/if}
               </span>
-              <button class="primary" on:click={() => run({ type: "contexts:restore", contextId: context.id })}>
-                Restore
-              </button>
+              <div class="footer-actions">
+                <button class="secondary" on:click={() => setPinned(context.id, !context.pinned)}>
+                  {context.pinned ? "Unpin" : "Pin"}
+                </button>
+                <button class="secondary danger" on:click={() => removeShelved(context)}>
+                  Remove
+                </button>
+                <button class="primary" on:click={() => run({ type: "contexts:restore", contextId: context.id })}>
+                  Restore
+                </button>
+              </div>
             </footer>
           </article>
         {/each}
       </div>
+
+      {#if !query.trim() && hiddenShelvedCount > 0}
+        <button class="shelf-toggle" on:click={() => (showAllShelved = !showAllShelved)}>
+          {showAllShelved ? "Show fewer" : `Show older (${hiddenShelvedCount})`}
+        </button>
+      {/if}
 
       {#if shelvedContexts.length === 0}
         <div class="empty">No shelved contexts match.</div>
@@ -666,10 +721,12 @@
   {#if toastMessage}
     <div class="toast">
       <span>{toastMessage}</span>
-      {#if canUndoWindowMove}
+      {#if toastUndoKind === "context-remove"}
+        <button on:click={undoContextRemoval}>Undo</button>
+      {:else if toastUndoKind === "window-move" && canUndoWindowMove}
         <button on:click={undoWindowMove}>Undo</button>
       {/if}
-      <button class="toast-close" aria-label="Dismiss" on:click={() => (toastMessage = "")}>×</button>
+      <button class="toast-close" aria-label="Dismiss" on:click={dismissToast}>×</button>
     </div>
   {/if}
 </main>
@@ -1073,6 +1130,37 @@
 
   .primary {
     border-color: #348c93;
+  }
+
+  .danger {
+    border-color: #704447;
+  }
+
+  .pin-label {
+    flex: 0 0 auto;
+    padding: 2px 5px;
+    border: 1px solid #425c63;
+    border-radius: 999px;
+    color: #a9c0c4;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .shelf-toggle {
+    display: block;
+    margin: 10px auto 0;
+    padding: 6px 10px;
+    border: 1px solid #30464d;
+    border-radius: 6px;
+    background: transparent;
+    color: #9fb1b5;
+    cursor: pointer;
+  }
+
+  .shelf-toggle:hover {
+    background: #1d3036;
   }
 
   .error,
