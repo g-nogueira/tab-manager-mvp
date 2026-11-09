@@ -7,6 +7,12 @@
   } from "../domain/context";
   import type { DesktopCompanionStatus } from "../domain/desktop";
   import type { ManagerRequest, ManagerResponse } from "../domain/messages";
+  import {
+    createDiagnosticRequestId,
+    diagnosticError,
+    diagnosticInfo,
+    diagnosticWarn
+  } from "../services/diagnostics";
 
   let contexts: BrowserContext[] = [];
   let contextOrder: string[] = [];
@@ -132,21 +138,42 @@
   }
 
   async function refreshDesktopStatus(): Promise<void> {
+    const requestId = createDiagnosticRequestId();
+    const startedAt = performance.now();
+
+    desktopStatus = undefined;
+
+    diagnosticInfo("popup", "desktop-status:start", {
+      requestId
+    });
+
     try {
       const response = await Promise.race([
-        send({ type: "desktop:status" }),
+        send({ type: "desktop:status", requestId }),
         new Promise<ManagerResponse>((resolve) => {
-          globalThis.setTimeout(
-            () =>
-              resolve({
-                ok: false,
-                error:
-                  "Desktop companion status timed out waiting for the extension service worker."
-              }),
-            7000
-          );
+          globalThis.setTimeout(() => {
+            diagnosticWarn("popup", "desktop-status:service-worker-timeout", {
+              requestId,
+              elapsedMs: Math.round(performance.now() - startedAt)
+            });
+
+            resolve({
+              ok: false,
+              error:
+                "Desktop companion status timed out waiting for the extension service worker."
+            });
+          }, 7000);
         })
       ]);
+
+      diagnosticInfo("popup", "desktop-status:response", {
+        requestId,
+        ok: response.ok,
+        hasDesktopStatus: response.ok
+          ? Boolean(response.desktopStatus)
+          : false,
+        elapsedMs: Math.round(performance.now() - startedAt)
+      });
 
       if (!response.ok) {
         desktopStatus = {
@@ -159,6 +186,10 @@
       }
 
       if (!response.desktopStatus) {
+        diagnosticWarn("popup", "desktop-status:missing-payload", {
+          requestId
+        });
+
         desktopStatus = {
           available: false,
           healthy: false,
@@ -170,7 +201,21 @@
       }
 
       desktopStatus = response.desktopStatus;
+
+      diagnosticInfo("popup", "desktop-status:applied", {
+        requestId,
+        available: desktopStatus.available,
+        healthy: desktopStatus.healthy,
+        platform: desktopStatus.platform,
+        hostVersion: desktopStatus.hostVersion,
+        protocolVersion: desktopStatus.protocolVersion
+      });
     } catch (cause) {
+      diagnosticError("popup", "desktop-status:failed", cause, {
+        requestId,
+        elapsedMs: Math.round(performance.now() - startedAt)
+      });
+
       desktopStatus = {
         available: false,
         healthy: false,
@@ -521,7 +566,24 @@
       return;
     }
 
-    await run({ type: "contexts:focus", contextId });
+    const requestId = createDiagnosticRequestId();
+
+    diagnosticInfo("popup", "desktop-focus:start", {
+      requestId,
+      contextId
+    });
+
+    const success = await run({
+      type: "contexts:focus",
+      contextId,
+      requestId
+    });
+
+    diagnosticInfo("popup", "desktop-focus:completed", {
+      requestId,
+      contextId,
+      success
+    });
   }
 
   async function shelve(contextId: string): Promise<void> {
