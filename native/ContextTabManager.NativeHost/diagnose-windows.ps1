@@ -198,6 +198,21 @@ finally {
     }
 }
 
+$logPath = Join-Path $env:LOCALAPPDATA 'ContextTabManager\NativeHost\logs\native-host.log'
+
+Write-Host ""
+Write-Host "Native host diagnostic log: $logPath"
+
+if (Test-Path $logPath) {
+    Write-Host 'Recent native-host log entries:'
+    Get-Content -Path $logPath -Tail 20 | ForEach-Object {
+        Write-Host "       $_"
+    }
+}
+else {
+    Write-Host '       No native-host file log exists yet.'
+}
+
 Write-Host ""
 Write-Host 'Local companion registration and direct host health are valid.'
-Write-Host 'If Chrome still reports unavailable, reload the extension and inspect chrome://extensions for Native Messaging errors.'
+Write-Host 'If Chrome still fails, compare the request ID in popup/service-worker DevTools with native-host.log.'
