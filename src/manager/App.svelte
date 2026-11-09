@@ -152,13 +152,27 @@
     await Promise.all([refresh(), refreshDesktopStatus()]);
   }
 
+  function companionStatusState():
+    | "checking"
+    | "connected"
+    | "unhealthy"
+    | "unavailable" {
+    if (!desktopStatus) return "checking";
+    if (!desktopStatus.available) return "unavailable";
+    if (!desktopStatus.healthy) return "unhealthy";
+    return "connected";
+  }
+
   function companionStatusLabel(): string {
-    if (!desktopStatus?.available) return "Companion unavailable";
-    if (!desktopStatus.healthy) return "Companion unhealthy";
+    const state = companionStatusState();
+
+    if (state === "checking") return "Checking companion…";
+    if (state === "unavailable") return "Companion unavailable";
+    if (state === "unhealthy") return "Companion unhealthy";
 
     const details = [
-      desktopStatus.platform,
-      desktopStatus.hostVersion ? `v${desktopStatus.hostVersion}` : undefined
+      desktopStatus?.platform,
+      desktopStatus?.hostVersion ? `v${desktopStatus.hostVersion}` : undefined
     ].filter(Boolean);
 
     return details.length > 0
@@ -565,13 +579,30 @@
     <input bind:value={query} placeholder="Search contexts and tabs…" />
   </label>
 
-  <div
-    class="companion-indicator"
-    class:healthy={desktopStatus?.available && desktopStatus?.healthy}
-    title={companionStatusTitle()}
-  >
-    <span class="companion-dot"></span>
-    <span>{companionStatusLabel()}</span>
+  <div class="companion-status">
+    <div
+      class="companion-indicator"
+      class:connected={companionStatusState() === "connected"}
+      class:unhealthy={companionStatusState() === "unhealthy"}
+      class:unavailable={companionStatusState() === "unavailable"}
+      title={companionStatusTitle()}
+    >
+      <span class="companion-dot"></span>
+      <span>{companionStatusLabel()}</span>
+      {#if companionStatusState() !== "connected"}
+        <button
+          class="companion-retry"
+          title="Retry companion health check"
+          on:click={refreshDesktopStatus}
+        >Retry</button>
+      {/if}
+    </div>
+
+    {#if desktopStatus?.reason && companionStatusState() !== "connected"}
+      <div class="companion-reason" title={desktopStatus.reason}>
+        {desktopStatus.reason}
+      </div>
+    {/if}
   </div>
 
   {#if targetContext}
@@ -1050,14 +1081,21 @@
     color: #eef9fa;
   }
 
+  .companion-status {
+    margin-top: 9px;
+  }
+
   .companion-indicator,
   .target-indicator {
     display: flex;
     align-items: center;
     gap: 6px;
-    margin-top: 9px;
     color: #8fa2a7;
     font-size: 11px;
+  }
+
+  .target-indicator {
+    margin-top: 9px;
   }
 
   .companion-indicator {
@@ -1067,12 +1105,39 @@
   .companion-dot {
     width: 7px;
     height: 7px;
+    flex: 0 0 7px;
     border-radius: 999px;
-    background: #795457;
+    background: #6d7c80;
   }
 
-  .companion-indicator.healthy .companion-dot {
+  .companion-indicator.connected .companion-dot {
     background: #55a88a;
+  }
+
+  .companion-indicator.unhealthy .companion-dot {
+    background: #b68a55;
+  }
+
+  .companion-indicator.unavailable .companion-dot {
+    background: #7e8588;
+  }
+
+  .companion-retry {
+    padding: 0 4px;
+    border: 0;
+    background: transparent;
+    color: #7ed0d6;
+    cursor: pointer;
+  }
+
+  .companion-reason {
+    max-width: 100%;
+    margin: 3px 0 0 13px;
+    overflow: hidden;
+    color: #a98e90;
+    font-size: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .target-indicator strong {
