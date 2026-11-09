@@ -170,3 +170,29 @@ If the popup reports the companion as unavailable, run:
 The diagnostic checks the Chrome Native Messaging registry key, manifest, extension allowlist, executable path, and a direct framed `getStatus` round-trip with the host.
 
 The rest of the extension remains fully functional without the companion.
+
+
+### Companion diagnostics
+
+Health and Focus calls carry a short correlation/request ID through:
+
+```text
+popup DevTools
+  → MV3 service-worker DevTools
+    → Native Messaging client
+      → .NET native host
+```
+
+Extension logs use the prefix `[ContextTabManager]` and include the request ID, command, timing and result/error.
+
+The native host also appends to:
+
+`%LOCALAPPDATA%\ContextTabManager\NativeHost\logs\native-host.log`
+
+On Windows, tail it while clicking **Retry**:
+
+```powershell
+Get-Content "$env:LOCALAPPDATA\ContextTabManager\NativeHost\logs\native-host.log" -Tail 50 -Wait
+```
+
+The same request ID should appear in the service-worker console and native log. If the service worker logs `send:dispatched` but the ID never appears in the native log, Chrome did not launch/reach the registered host. If the ID reaches the native log and a response is logged but the extension times out, the failure is on the Chrome return path.
