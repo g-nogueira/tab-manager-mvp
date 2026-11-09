@@ -95,6 +95,20 @@ Without a working companion, normal extension operations continue working. **Foc
 
 The installer publishes a self-contained single-file host under Local AppData, writes a Native Messaging manifest restricted to that extension ID, and registers it under `HKCU`.
 
+If the popup reports the companion as unavailable or unhealthy, run:
+
+`./native/ContextTabManager.NativeHost/diagnose-windows.ps1 -ExtensionId <extension-id>`
+
+The diagnostic verifies:
+
+1. the HKCU Native Messaging registration;
+2. the registered manifest path and JSON;
+3. the exact `allowed_origins` entry for the extension;
+4. the native-host executable path;
+5. a direct Native Messaging-framed `getStatus` request/response.
+
+This separates Chrome registration problems from host/process/protocol failures. The popup also displays the raw Native Messaging failure reason inline and provides a **Retry** action.
+
 To uninstall, run `./native/ContextTabManager.NativeHost/uninstall-windows.ps1`.
 
 ## Deliberately deferred
