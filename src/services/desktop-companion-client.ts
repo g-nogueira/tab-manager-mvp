@@ -1,8 +1,10 @@
-import type { DesktopCapabilities } from "../domain/desktop";
+import type { DesktopCompanionStatus } from "../domain/desktop";
 
 const NATIVE_HOST_NAME = "com.gnogueira.context_tab_manager";
 
-interface NativeHostCapabilities {
+interface NativeHostStatus {
+  hostVersion: string;
+  protocolVersion: number;
   platform: string;
   canPrepareDesktopForFocus: boolean;
 }
@@ -10,7 +12,7 @@ interface NativeHostCapabilities {
 interface NativeHostResponse {
   ok: boolean;
   command: string;
-  capabilities?: NativeHostCapabilities;
+  status?: NativeHostStatus;
   error?: string;
 }
 
@@ -38,27 +40,32 @@ function sendNative(command: string): Promise<NativeHostResponse> {
   });
 }
 
-export async function getDesktopCapabilities(): Promise<DesktopCapabilities> {
+export async function getDesktopCompanionStatus(): Promise<DesktopCompanionStatus> {
   try {
-    const response = await sendNative("getCapabilities");
+    const response = await sendNative("getStatus");
 
-    if (!response.ok || !response.capabilities) {
+    if (!response.ok || !response.status) {
       return {
         available: true,
+        healthy: false,
         canPrepareDesktopForFocus: false,
-        reason: response.error ?? "Desktop companion did not report capabilities"
+        reason: response.error ?? "Desktop companion did not report status"
       };
     }
 
     return {
       available: true,
-      platform: response.capabilities.platform,
+      healthy: true,
+      platform: response.status.platform,
+      hostVersion: response.status.hostVersion,
+      protocolVersion: response.status.protocolVersion,
       canPrepareDesktopForFocus:
-        response.capabilities.canPrepareDesktopForFocus
+        response.status.canPrepareDesktopForFocus
     };
   } catch (error) {
     return {
       available: false,
+      healthy: false,
       canPrepareDesktopForFocus: false,
       reason:
         error instanceof Error
