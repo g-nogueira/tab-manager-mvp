@@ -6,14 +6,16 @@ public sealed record NativeResponse(
     bool Ok,
     string Command,
     object? Capabilities = null,
+    object? Status = null,
     object? Result = null,
     string? Error = null)
 {
     public static NativeResponse Success(
         string command,
         object? capabilities = null,
+        object? status = null,
         object? result = null) =>
-        new(true, command, capabilities, result);
+        new(true, command, capabilities, status, result);
 
     public static NativeResponse Failure(
         string command,
