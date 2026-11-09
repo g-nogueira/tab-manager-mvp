@@ -364,6 +364,23 @@ export async function reconcileAllWindows(): Promise<void> {
     };
   }
 
+  // Mixed active/shelved members were produced by the old manual-close
+  // semantics. Once a context has at least one live window, closed member
+  // windows are no longer part of that active context and should not be
+  // restored on a future switch.
+  for (const context of contexts) {
+    const hasActiveWindow = context.windows.some(
+      (window) => window.state === "active" && window.windowId !== undefined
+    );
+
+    if (hasActiveWindow && context.windows.length > 1) {
+      context.windows = context.windows.filter(
+        (window) => window.state === "active" && window.windowId !== undefined
+      );
+      context.shelvedAt = undefined;
+    }
+  }
+
   await saveContexts(contexts);
   await saveBindings(bindings);
 }
@@ -426,29 +443,39 @@ export async function syncWindow(
   await saveBindings(bindings);
 }
 
-export async function markWindowShelved(windowId: number): Promise<void> {
+export async function handleWindowClosed(windowId: number): Promise<void> {
   const bindings = await loadBindings();
   const binding = bindings[String(windowId)];
   if (!binding) return;
 
   const contexts = await loadContexts();
   const context = contexts.find((item) => item.id === binding.contextId);
-  const contextWindow = context?.windows.find(
+  const contextWindowIndex = context?.windows.findIndex(
     (item) => item.id === binding.contextWindowId
   );
 
-  if (context && contextWindow) {
+  if (context && contextWindowIndex !== undefined && contextWindowIndex >= 0) {
     const timestamp = now();
-    contextWindow.state = "shelved";
-    contextWindow.windowId = undefined;
-    contextWindow.updatedAt = timestamp;
-    context.updatedAt = timestamp;
 
-    if (
-      context.windows.every(
-        (window) => window.state === "shelved" || window.windowId === undefined
-      )
-    ) {
+    if (context.windows.length > 1) {
+      // Closing one member of an active multi-window context means "remove
+      // this window from the context", not "keep a hidden restorable member".
+      context.windows.splice(contextWindowIndex, 1);
+      context.updatedAt = timestamp;
+
+      const stillActive = context.windows.some(
+        (window) => window.state === "active" && window.windowId !== undefined
+      );
+
+      context.shelvedAt = stillActive ? undefined : timestamp;
+    } else {
+      // Closing the only window preserves the original convenient behavior:
+      // the whole context becomes shelved and can be restored later.
+      const contextWindow = context.windows[contextWindowIndex];
+      contextWindow.state = "shelved";
+      contextWindow.windowId = undefined;
+      contextWindow.updatedAt = timestamp;
+      context.updatedAt = timestamp;
       context.shelvedAt = timestamp;
     }
 
