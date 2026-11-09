@@ -1,9 +1,12 @@
 import type { BrowserContext } from "./context";
+import type { DesktopCapabilities } from "./desktop";
 
 export type ManagerRequest =
   | { type: "contexts:list" }
   | { type: "contexts:rename"; contextId: string; name: string }
   | { type: "contexts:switch"; contextId: string }
+  | { type: "contexts:focus"; contextId: string }
+  | { type: "desktop:capabilities" }
   | { type: "contexts:shelve"; contextId: string }
   | { type: "contexts:restore"; contextId: string }
   | { type: "contexts:set-pinned"; contextId: string; pinned: boolean }
@@ -30,5 +33,6 @@ export type ManagerResponse =
       contexts?: BrowserContext[];
       organizationTargetId?: string;
       canUndoWindowMove?: boolean;
+      desktopCapabilities?: DesktopCapabilities;
     }
   | { ok: false; error: string };
