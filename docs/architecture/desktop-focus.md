@@ -89,9 +89,12 @@ Without a working companion, normal extension operations continue working. **Foc
 
 ## Windows development install
 
-1. Build/load the unpacked extension and copy its ID from `chrome://extensions`.
-2. Run `./native/ContextTabManager.NativeHost/install-windows.ps1 -ExtensionId <extension-id>`.
-3. Reload the extension.
+1. Run `npm run build`.
+2. Load the unpacked `dist` directory (or click **Reload** if already loaded) and copy its ID from `chrome://extensions`.
+3. Run `./native/ContextTabManager.NativeHost/install-windows.ps1 -ExtensionId <extension-id>`.
+4. Click **Reload** for the extension again before testing Focus.
+
+For unpacked extensions, rebuilding files on disk does not guarantee that Chrome has activated the new manifest permissions or service worker. An explicit extension reload is required after changes to `manifest.json` or the service worker.
 
 The installer publishes a self-contained single-file host under Local AppData, writes a Native Messaging manifest restricted to that extension ID, and registers it under `HKCU`.
 
@@ -108,6 +111,8 @@ The diagnostic verifies:
 5. a direct Native Messaging-framed `getStatus` request/response.
 
 This separates Chrome registration problems from host/process/protocol failures. The popup also displays the raw Native Messaging failure reason inline and provides a **Retry** action.
+
+If the direct diagnostic passes but the popup reports **Checking companion** indefinitely, the popup and MV3 service worker are likely on different builds. The UI detects this case and reports that the unpacked extension must be reloaded in `chrome://extensions`.
 
 To uninstall, run `./native/ContextTabManager.NativeHost/uninstall-windows.ps1`.
 
