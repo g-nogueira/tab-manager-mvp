@@ -5,8 +5,8 @@ export type ManagerRequest =
   | { type: "contexts:list" }
   | { type: "contexts:rename"; contextId: string; name: string }
   | { type: "contexts:switch"; contextId: string }
-  | { type: "contexts:focus"; contextId: string }
-  | { type: "desktop:status" }
+  | { type: "contexts:focus"; contextId: string; requestId?: string }
+  | { type: "desktop:status"; requestId: string }
   | { type: "contexts:shelve"; contextId: string }
   | { type: "contexts:restore"; contextId: string }
   | { type: "contexts:set-pinned"; contextId: string; pinned: boolean }
