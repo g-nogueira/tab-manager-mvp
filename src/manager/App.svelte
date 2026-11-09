@@ -239,27 +239,31 @@
     await Promise.all([refresh(), refreshDesktopStatus()]);
   }
 
-  function companionStatusState():
+  function companionStatusState(
+    status: DesktopCompanionStatus | undefined
+  ):
     | "checking"
     | "connected"
     | "unhealthy"
     | "unavailable" {
-    if (!desktopStatus) return "checking";
-    if (!desktopStatus.available) return "unavailable";
-    if (!desktopStatus.healthy) return "unhealthy";
+    if (!status) return "checking";
+    if (!status.available) return "unavailable";
+    if (!status.healthy) return "unhealthy";
     return "connected";
   }
 
-  function companionStatusLabel(): string {
-    const state = companionStatusState();
+  function companionStatusLabel(
+    status: DesktopCompanionStatus | undefined
+  ): string {
+    const state = companionStatusState(status);
 
     if (state === "checking") return "Checking companion…";
     if (state === "unavailable") return "Companion unavailable";
     if (state === "unhealthy") return "Companion unhealthy";
 
     const details = [
-      desktopStatus?.platform,
-      desktopStatus?.hostVersion ? `v${desktopStatus.hostVersion}` : undefined
+      status?.platform,
+      status?.hostVersion ? `v${status.hostVersion}` : undefined
     ].filter(Boolean);
 
     return details.length > 0
@@ -267,34 +271,40 @@
       : "Companion connected";
   }
 
-  function companionStatusTitle(): string {
-    if (!desktopStatus) return "Checking desktop companion…";
-    if (!desktopStatus.available || !desktopStatus.healthy) {
-      return desktopStatus.reason ?? "Desktop companion is unavailable";
+  function companionStatusTitle(
+    status: DesktopCompanionStatus | undefined
+  ): string {
+    if (!status) return "Checking desktop companion…";
+    if (!status.available || !status.healthy) {
+      return status.reason ?? "Desktop companion is unavailable";
     }
 
-    const protocol = desktopStatus.protocolVersion
-      ? `Protocol v${desktopStatus.protocolVersion}`
+    const protocol = status.protocolVersion
+      ? `Protocol v${status.protocolVersion}`
       : "Protocol version unknown";
 
-    return `${companionStatusLabel()} · ${protocol}`;
+    return `${companionStatusLabel(status)} · ${protocol}`;
   }
 
-  function canDesktopFocus(): boolean {
+  function canDesktopFocus(
+    status: DesktopCompanionStatus | undefined
+  ): boolean {
     return Boolean(
-      desktopStatus?.available &&
-        desktopStatus.healthy &&
-        desktopStatus.canPrepareDesktopForFocus
+      status?.available &&
+        status.healthy &&
+        status.canPrepareDesktopForFocus
     );
   }
 
-  function desktopFocusTitle(): string {
-    if (canDesktopFocus()) {
+  function desktopFocusTitle(
+    status: DesktopCompanionStatus | undefined
+  ): string {
+    if (canDesktopFocus(status)) {
       return "Minimize other desktop applications and focus this context";
     }
 
     return (
-      desktopStatus?.reason ??
+      status?.reason ??
       "Desktop Focus requires the native companion"
     );
   }
@@ -571,8 +581,8 @@
   async function focusContext(contextId: string): Promise<void> {
     closeMenus();
 
-    if (!canDesktopFocus()) {
-      error = desktopFocusTitle();
+    if (!canDesktopFocus(desktopStatus)) {
+      error = desktopFocusTitle(desktopStatus);
       return;
     }
 
@@ -686,14 +696,14 @@
   <div class="companion-status">
     <div
       class="companion-indicator"
-      class:connected={companionStatusState() === "connected"}
-      class:unhealthy={companionStatusState() === "unhealthy"}
-      class:unavailable={companionStatusState() === "unavailable"}
-      title={companionStatusTitle()}
+      class:connected={companionStatusState(desktopStatus) === "connected"}
+      class:unhealthy={companionStatusState(desktopStatus) === "unhealthy"}
+      class:unavailable={companionStatusState(desktopStatus) === "unavailable"}
+      title={companionStatusTitle(desktopStatus)}
     >
       <span class="companion-dot"></span>
-      <span>{companionStatusLabel()}</span>
-      {#if companionStatusState() !== "connected"}
+      <span>{companionStatusLabel(desktopStatus)}</span>
+      {#if companionStatusState(desktopStatus) !== "connected"}
         <button
           class="companion-retry"
           title="Retry companion health check"
@@ -702,7 +712,7 @@
       {/if}
     </div>
 
-    {#if desktopStatus?.reason && companionStatusState() !== "connected"}
+    {#if desktopStatus?.reason && companionStatusState(desktopStatus) !== "connected"}
       <div class="companion-reason" title={desktopStatus.reason}>
         {desktopStatus.reason}
       </div>
@@ -976,8 +986,8 @@
               <div class="footer-actions">
                 <button
                   class="primary"
-                  title={desktopFocusTitle()}
-                  disabled={!canDesktopFocus()}
+                  title={desktopFocusTitle(desktopStatus)}
+                  disabled={!canDesktopFocus(desktopStatus)}
                   on:click={() => focusContext(context.id)}
                 >Focus</button>
                 <button class="secondary" on:click={() => switchToContext(context.id)}>Switch</button>
@@ -1072,8 +1082,8 @@
                 </button>
                 <button
                   class="primary"
-                  title={desktopFocusTitle()}
-                  disabled={!canDesktopFocus()}
+                  title={desktopFocusTitle(desktopStatus)}
+                  disabled={!canDesktopFocus(desktopStatus)}
                   on:click={() => focusContext(context.id)}
                 >Focus</button>
               </div>
