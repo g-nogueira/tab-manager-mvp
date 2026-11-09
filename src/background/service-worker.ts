@@ -1,4 +1,10 @@
 import type { WindowBinding } from "../domain/context";
+import {
+  cleanupShelvedContexts,
+  removeShelvedContext,
+  setContextPinned,
+  undoLastContextRemoval
+} from "../services/context-lifecycle";
 import type { ManagerRequest, ManagerResponse } from "../domain/messages";
 import {
   handleTabContextMenuClick,
@@ -52,6 +58,7 @@ function sync(windowId?: number, touchedFocus = false): void {
 }
 
 async function managerState(): Promise<ManagerResponse> {
+  await cleanupShelvedContexts();
   const contexts = await loadContexts();
   let organizationTargetId = await loadOrganizationTargetId();
 
@@ -74,6 +81,7 @@ async function managerState(): Promise<ManagerResponse> {
 chrome.runtime.onInstalled.addListener(() => {
   void enqueue(async () => {
     await reconcileAllWindows();
+    await cleanupShelvedContexts();
     await rebuildTabContextMenus();
   });
 });
@@ -82,6 +90,7 @@ chrome.runtime.onStartup.addListener(() => {
   setTimeout(() => {
     void enqueue(async () => {
       await reconcileAllWindows();
+      await cleanupShelvedContexts();
       await rebuildTabContextMenus();
     });
   }, 1000);
@@ -99,7 +108,11 @@ chrome.windows.onCreated.addListener((window) => {
 });
 
 chrome.windows.onRemoved.addListener((windowId) => {
-  void enqueue(() => markWindowShelved(windowId));
+  void enqueue(async () => {
+    await markWindowShelved(windowId);
+    await cleanupShelvedContexts();
+    await rebuildTabContextMenus();
+  });
 });
 
 chrome.windows.onFocusChanged.addListener((windowId) => {
@@ -229,6 +242,18 @@ chrome.runtime.onMessage.addListener(
 
           case "contexts:restore":
             await restoreContext(request.contextId);
+            break;
+
+          case "contexts:set-pinned":
+            await setContextPinned(request.contextId, request.pinned);
+            break;
+
+          case "contexts:remove":
+            await removeShelvedContext(request.contextId);
+            break;
+
+          case "contexts:undo-remove":
+            await undoLastContextRemoval();
             break;
 
           case "contexts:add-window":

@@ -1,6 +1,7 @@
 import type {
   BrowserContext,
   TabSnapshot,
+  UndoContextRemoval,
   UndoWindowMove,
   WindowBinding,
   WindowBindings
@@ -10,6 +11,7 @@ const CONTEXTS_KEY = "contexts";
 const BINDINGS_KEY = "windowBindings";
 const ORGANIZATION_TARGET_KEY = "organizationTargetId";
 const UNDO_WINDOW_MOVE_KEY = "undoWindowMove";
+const UNDO_CONTEXT_REMOVAL_KEY = "undoContextRemoval";
 
 interface LegacyBrowserContext {
   id: string;
@@ -51,6 +53,11 @@ function migrateLegacyContext(legacy: LegacyBrowserContext): BrowserContext {
         lastFocusedAt: legacy.lastFocusedAt
       }
     ],
+    pinned: false,
+    shelvedAt:
+      legacy.state === "shelved" || legacy.windowId === undefined
+        ? updatedAt
+        : undefined,
     createdAt,
     updatedAt,
     lastFocusedAt: legacy.lastFocusedAt
@@ -58,8 +65,15 @@ function migrateLegacyContext(legacy: LegacyBrowserContext): BrowserContext {
 }
 
 function normalizeContext(context: BrowserContext): BrowserContext {
+  const allShelved = context.windows.every(
+    (window) => window.state === "shelved" || window.windowId === undefined
+  );
+
   return {
     ...context,
+    pinned: context.pinned ?? false,
+    shelvedAt:
+      context.shelvedAt ?? (allShelved ? context.updatedAt : undefined),
     windows: context.windows.map((window) => ({
       ...window,
       preferredState: window.preferredState ?? "normal"
@@ -158,5 +172,25 @@ export async function saveUndoWindowMove(
     await chrome.storage.session.set({ [UNDO_WINDOW_MOVE_KEY]: move });
   } else {
     await chrome.storage.session.remove(UNDO_WINDOW_MOVE_KEY);
+  }
+}
+
+
+export async function loadUndoContextRemoval(): Promise<UndoContextRemoval | undefined> {
+  const result = await chrome.storage.session.get(UNDO_CONTEXT_REMOVAL_KEY);
+  const value = result[UNDO_CONTEXT_REMOVAL_KEY];
+
+  return value && typeof value === "object"
+    ? (value as UndoContextRemoval)
+    : undefined;
+}
+
+export async function saveUndoContextRemoval(
+  removal: UndoContextRemoval | undefined
+): Promise<void> {
+  if (removal) {
+    await chrome.storage.session.set({ [UNDO_CONTEXT_REMOVAL_KEY]: removal });
+  } else {
+    await chrome.storage.session.remove(UNDO_CONTEXT_REMOVAL_KEY);
   }
 }

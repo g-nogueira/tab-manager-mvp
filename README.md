@@ -88,3 +88,18 @@ When a tab is detached into a new Chrome window, that window automatically inher
 The action is only shown when the current context contains multiple windows. It keeps the existing Chrome window, tabs, bounds and persisted window identity intact; only the context association changes.
 
 The new context becomes the current organizing target. The action is reversible through the existing **Undo** flow, and Undo removes the temporary empty context when appropriate.
+
+
+## Shelved context lifecycle
+
+Shelved contexts now have a lightweight lifecycle so the popup does not grow indefinitely:
+
+- **Pin** keeps a shelved context indefinitely.
+- **Remove** forgets a shelved context immediately and offers **Undo** in the popup.
+- Unnamed contexts containing only New Tab / blank pages are discarded automatically once fully shelved.
+- Unpinned shelved contexts expire after **30 days**.
+- The popup shows every pinned context plus the **6 most recent unpinned** shelved contexts by default; **Show older** expands the rest.
+- Searching bypasses the collapsed view and searches all retained shelved contexts.
+- Unpinning a context starts a fresh 30-day retention window rather than deleting an old pinned context immediately.
+
+Automatic cleanup only affects fully shelved contexts. Active contexts are never removed by the lifecycle cleanup.
