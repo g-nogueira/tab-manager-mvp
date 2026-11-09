@@ -5,7 +5,7 @@
     ContextWindow,
     TabSnapshot
   } from "../domain/context";
-  import type { DesktopCapabilities } from "../domain/desktop";
+  import type { DesktopCompanionStatus } from "../domain/desktop";
   import type { ManagerRequest, ManagerResponse } from "../domain/messages";
 
   let contexts: BrowserContext[] = [];
@@ -25,7 +25,7 @@
   let toastUndoKind: "window-move" | "context-remove" | undefined;
   let showAllShelved = false;
   let currentChromeWindowId: number | undefined;
-  let desktopCapabilities: DesktopCapabilities | undefined;
+  let desktopStatus: DesktopCompanionStatus | undefined;
 
   async function send(request: ManagerRequest): Promise<ManagerResponse> {
     return chrome.runtime.sendMessage(request) as Promise<ManagerResponse>;
@@ -131,16 +131,17 @@
     return applyResponse(await send(request));
   }
 
-  async function refreshDesktopCapabilities(): Promise<void> {
+  async function refreshDesktopStatus(): Promise<void> {
     try {
-      const response = await send({ type: "desktop:capabilities" });
+      const response = await send({ type: "desktop:status" });
 
       if (response.ok) {
-        desktopCapabilities = response.desktopCapabilities;
+        desktopStatus = response.desktopStatus;
       }
     } catch (cause) {
-      desktopCapabilities = {
+      desktopStatus = {
         available: false,
+        healthy: false,
         canPrepareDesktopForFocus: false,
         reason: cause instanceof Error ? cause.message : String(cause)
       };
@@ -148,13 +149,41 @@
   }
 
   async function refreshAll(): Promise<void> {
-    await Promise.all([refresh(), refreshDesktopCapabilities()]);
+    await Promise.all([refresh(), refreshDesktopStatus()]);
+  }
+
+  function companionStatusLabel(): string {
+    if (!desktopStatus?.available) return "Companion unavailable";
+    if (!desktopStatus.healthy) return "Companion unhealthy";
+
+    const details = [
+      desktopStatus.platform,
+      desktopStatus.hostVersion ? `v${desktopStatus.hostVersion}` : undefined
+    ].filter(Boolean);
+
+    return details.length > 0
+      ? `Companion connected · ${details.join(" · ")}`
+      : "Companion connected";
+  }
+
+  function companionStatusTitle(): string {
+    if (!desktopStatus) return "Checking desktop companion…";
+    if (!desktopStatus.available || !desktopStatus.healthy) {
+      return desktopStatus.reason ?? "Desktop companion is unavailable";
+    }
+
+    const protocol = desktopStatus.protocolVersion
+      ? `Protocol v${desktopStatus.protocolVersion}`
+      : "Protocol version unknown";
+
+    return `${companionStatusLabel()} · ${protocol}`;
   }
 
   function canDesktopFocus(): boolean {
     return Boolean(
-      desktopCapabilities?.available &&
-        desktopCapabilities.canPrepareDesktopForFocus
+      desktopStatus?.available &&
+        desktopStatus.healthy &&
+        desktopStatus.canPrepareDesktopForFocus
     );
   }
 
@@ -164,7 +193,7 @@
     }
 
     return (
-      desktopCapabilities?.reason ??
+      desktopStatus?.reason ??
       "Desktop Focus requires the native companion"
     );
   }
@@ -535,6 +564,15 @@
     <span>⌕</span>
     <input bind:value={query} placeholder="Search contexts and tabs…" />
   </label>
+
+  <div
+    class="companion-indicator"
+    class:healthy={desktopStatus?.available && desktopStatus?.healthy}
+    title={companionStatusTitle()}
+  >
+    <span class="companion-dot"></span>
+    <span>{companionStatusLabel()}</span>
+  </div>
 
   {#if targetContext}
     <div class="target-indicator">
@@ -1012,6 +1050,7 @@
     color: #eef9fa;
   }
 
+  .companion-indicator,
   .target-indicator {
     display: flex;
     align-items: center;
@@ -1019,6 +1058,21 @@
     margin-top: 9px;
     color: #8fa2a7;
     font-size: 11px;
+  }
+
+  .companion-indicator {
+    width: fit-content;
+  }
+
+  .companion-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: #795457;
+  }
+
+  .companion-indicator.healthy .companion-dot {
+    background: #55a88a;
   }
 
   .target-indicator strong {
