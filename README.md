@@ -151,9 +151,17 @@ Desktop-level **Focus** is provided by an optional .NET 10 Native Messaging comp
 - ADR 0002: [Desktop abstraction](docs/adr/0002-capability-oriented-desktop-abstraction.md)
 - ADR 0003: [Focus semantics](docs/adr/0003-focus-is-one-way.md)
 
-On Windows, install the development companion with:
+For an unpacked Windows build:
 
-`./native/ContextTabManager.NativeHost/install-windows.ps1 -ExtensionId <chrome-extension-id>`
+1. Run `npm run build`.
+2. In `chrome://extensions`, click **Reload** for Context Tab Manager so Chrome activates the latest manifest and service worker.
+3. Install the companion with:
+
+   `./native/ContextTabManager.NativeHost/install-windows.ps1 -ExtensionId <chrome-extension-id>`
+
+4. Reload the extension once more before testing **Focus**.
+
+Whenever `dist`, `manifest.json`, or the service worker changes, rebuild and explicitly reload the unpacked extension in Chrome.
 
 If the popup reports the companion as unavailable, run:
 
