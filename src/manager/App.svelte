@@ -133,7 +133,20 @@
 
   async function refreshDesktopStatus(): Promise<void> {
     try {
-      const response = await send({ type: "desktop:status" });
+      const response = await Promise.race([
+        send({ type: "desktop:status" }),
+        new Promise<ManagerResponse>((resolve) => {
+          globalThis.setTimeout(
+            () =>
+              resolve({
+                ok: false,
+                error:
+                  "Desktop companion status timed out waiting for the extension service worker."
+              }),
+            7000
+          );
+        })
+      ]);
 
       if (!response.ok) {
         desktopStatus = {
