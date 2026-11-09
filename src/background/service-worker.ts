@@ -249,7 +249,7 @@ chrome.runtime.onMessage.addListener(
             return {
               ok: true,
               desktopCapabilities: await getDesktopCapabilities()
-            };
+            } satisfies ManagerResponse;
 
           case "contexts:shelve":
             await shelveContext(request.contextId);
