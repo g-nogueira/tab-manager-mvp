@@ -18,6 +18,11 @@ jobs:
         with:
           node-version: 22
 
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
@@ -26,3 +31,6 @@ jobs:
 
       - name: Build extension
         run: npm run build
+
+      - name: Build native companion
+        run: dotnet build native/ContextTabManager.NativeHost/ContextTabManager.NativeHost.csproj --configuration Release
