@@ -12,19 +12,23 @@ public sealed class DesktopCommandDispatcher(IDesktopService desktopService)
         {
             "getStatus" => NativeResponse.Success(
                 request.Command,
+                request.RequestId,
                 status: GetStatus()),
 
             "getCapabilities" => NativeResponse.Success(
                 request.Command,
+                request.RequestId,
                 capabilities: desktopService.GetCapabilities()),
 
             "prepareDesktopForFocus" => await PrepareDesktopForFocusAsync(
                 request.Command,
+                request.RequestId,
                 cancellationToken),
 
             _ => NativeResponse.Failure(
                 request.Command,
-                $"Unsupported command: {request.Command}")
+                $"Unsupported command: {request.Command}",
+                request.RequestId)
         };
     }
 
@@ -47,6 +51,7 @@ public sealed class DesktopCommandDispatcher(IDesktopService desktopService)
 
     private async Task<NativeResponse> PrepareDesktopForFocusAsync(
         string command,
+        string? requestId,
         CancellationToken cancellationToken)
     {
         var capabilities = desktopService.GetCapabilities();
@@ -55,12 +60,16 @@ public sealed class DesktopCommandDispatcher(IDesktopService desktopService)
         {
             return NativeResponse.Failure(
                 command,
-                $"Desktop Focus is not supported on {capabilities.Platform}.");
+                $"Desktop Focus is not supported on {capabilities.Platform}.",
+                requestId);
         }
 
         var result = await desktopService.PrepareForFocusAsync(
             cancellationToken);
 
-        return NativeResponse.Success(command, result: result);
+        return NativeResponse.Success(
+            command,
+            requestId,
+            result: result);
     }
 }
