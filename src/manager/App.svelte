@@ -135,9 +135,28 @@
     try {
       const response = await send({ type: "desktop:status" });
 
-      if (response.ok) {
-        desktopStatus = response.desktopStatus;
+      if (!response.ok) {
+        desktopStatus = {
+          available: false,
+          healthy: false,
+          canPrepareDesktopForFocus: false,
+          reason: response.error
+        };
+        return;
       }
+
+      if (!response.desktopStatus) {
+        desktopStatus = {
+          available: false,
+          healthy: false,
+          canPrepareDesktopForFocus: false,
+          reason:
+            "The extension service worker did not return companion status. Reload the unpacked extension in chrome://extensions."
+        };
+        return;
+      }
+
+      desktopStatus = response.desktopStatus;
     } catch (cause) {
       desktopStatus = {
         available: false,
