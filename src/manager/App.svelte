@@ -148,23 +148,33 @@
     });
 
     try {
+      let timeoutId:
+        | ReturnType<typeof globalThis.setTimeout>
+        | undefined;
+
+      const timeout = new Promise<ManagerResponse>((resolve) => {
+        timeoutId = globalThis.setTimeout(() => {
+          diagnosticWarn("popup", "desktop-status:service-worker-timeout", {
+            requestId,
+            elapsedMs: Math.round(performance.now() - startedAt)
+          });
+
+          resolve({
+            ok: false,
+            error:
+              "Desktop companion status timed out waiting for the extension service worker."
+          });
+        }, 7000);
+      });
+
       const response = await Promise.race([
         send({ type: "desktop:status", requestId }),
-        new Promise<ManagerResponse>((resolve) => {
-          globalThis.setTimeout(() => {
-            diagnosticWarn("popup", "desktop-status:service-worker-timeout", {
-              requestId,
-              elapsedMs: Math.round(performance.now() - startedAt)
-            });
-
-            resolve({
-              ok: false,
-              error:
-                "Desktop companion status timed out waiting for the extension service worker."
-            });
-          }, 7000);
-        })
+        timeout
       ]);
+
+      if (timeoutId !== undefined) {
+        globalThis.clearTimeout(timeoutId);
+      }
 
       diagnosticInfo("popup", "desktop-status:response", {
         requestId,
