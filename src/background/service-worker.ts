@@ -1,5 +1,9 @@
 import type { WindowBinding } from "../domain/context";
 import {
+  diagnosticError,
+  diagnosticInfo
+} from "../services/diagnostics";
+import {
   getDesktopCompanionStatus,
   prepareDesktopForFocus
 } from "../services/desktop-companion-client";
@@ -36,6 +40,12 @@ import {
   syncWindow,
   undoLastWindowMove
 } from "../services/window-reconciler";
+
+diagnosticInfo("service-worker", "loaded", {
+  extensionVersion: chrome.runtime.getManifest().version,
+  nativeMessagingPermission:
+    chrome.runtime.getManifest().permissions?.includes("nativeMessaging") ?? false
+});
 
 interface PendingDetachedTab {
   sourceBinding: WindowBinding;
@@ -227,19 +237,45 @@ chrome.runtime.onMessage.addListener(
     // Companion health is read-only and must not wait behind tab/window
     // reconciliation work in the serialized queue.
     if (request.type === "desktop:status") {
-      void getDesktopCompanionStatus()
-        .then((desktopStatus) =>
+      const { requestId } = request;
+      const startedAt = performance.now();
+
+      diagnosticInfo("service-worker", "desktop-status:received", {
+        requestId
+      });
+
+      void getDesktopCompanionStatus(requestId)
+        .then((desktopStatus) => {
+          diagnosticInfo("service-worker", "desktop-status:completed", {
+            requestId,
+            available: desktopStatus.available,
+            healthy: desktopStatus.healthy,
+            platform: desktopStatus.platform,
+            hostVersion: desktopStatus.hostVersion,
+            elapsedMs: Math.round(performance.now() - startedAt)
+          });
+
           sendResponse({
             ok: true,
             desktopStatus
-          } satisfies ManagerResponse)
-        )
-        .catch((error) =>
+          } satisfies ManagerResponse);
+        })
+        .catch((error) => {
+          diagnosticError(
+            "service-worker",
+            "desktop-status:failed",
+            error,
+            {
+              requestId,
+              elapsedMs: Math.round(performance.now() - startedAt)
+            }
+          );
+
           sendResponse({
             ok: false,
             error: error instanceof Error ? error.message : String(error)
-          } satisfies ManagerResponse)
-        );
+          } satisfies ManagerResponse);
+        });
 
       return true;
     }
@@ -260,10 +296,23 @@ chrome.runtime.onMessage.addListener(
             await switchContext(request.contextId);
             break;
 
-          case "contexts:focus":
-            await prepareDesktopForFocus();
+          case "contexts:focus": {
+            const requestId = request.requestId;
+
+            diagnosticInfo("service-worker", "desktop-focus:received", {
+              requestId,
+              contextId: request.contextId
+            });
+
+            await prepareDesktopForFocus(requestId);
             await switchContext(request.contextId);
+
+            diagnosticInfo("service-worker", "desktop-focus:completed", {
+              requestId,
+              contextId: request.contextId
+            });
             break;
+          }
 
           case "contexts:shelve":
             await shelveContext(request.contextId);
