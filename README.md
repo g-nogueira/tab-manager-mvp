@@ -140,3 +140,59 @@ Closing a Chrome window now follows the context model instead of creating hidden
 - legacy mixed active/`closed` member windows are pruned during reconciliation so they are not unexpectedly restored by a later context switch.
 
 Explicit **Shelve** remains different: it intentionally preserves all context windows for restoration.
+
+
+## Desktop Focus companion
+
+Desktop-level **Focus** is provided by an optional .NET 10 Native Messaging companion. Focus minimizes eligible desktop application windows and then restores/switches to the selected Chrome context.
+
+- Architecture: [docs/architecture/desktop-focus.md](docs/architecture/desktop-focus.md)
+- ADR 0001: [Native Messaging](docs/adr/0001-native-messaging-desktop-companion.md)
+- ADR 0002: [Desktop abstraction](docs/adr/0002-capability-oriented-desktop-abstraction.md)
+- ADR 0003: [Focus semantics](docs/adr/0003-focus-is-one-way.md)
+
+For an unpacked Windows build:
+
+1. Run `npm run build`.
+2. In `chrome://extensions`, click **Reload** for Context Tab Manager so Chrome activates the latest manifest and service worker.
+3. Install the companion with:
+
+   `./native/ContextTabManager.NativeHost/install-windows.ps1 -ExtensionId <chrome-extension-id>`
+
+4. Reload the extension once more before testing **Focus**.
+
+Whenever `dist`, `manifest.json`, or the service worker changes, rebuild and explicitly reload the unpacked extension in Chrome.
+
+If the popup reports the companion as unavailable, run:
+
+`./native/ContextTabManager.NativeHost/diagnose-windows.ps1 -ExtensionId <chrome-extension-id>`
+
+The diagnostic checks the Chrome Native Messaging registry key, manifest, extension allowlist, executable path, and a direct framed `getStatus` round-trip with the host.
+
+The rest of the extension remains fully functional without the companion.
+
+
+### Companion diagnostics
+
+Health and Focus calls carry a short correlation/request ID through:
+
+```text
+popup DevTools
+  → MV3 service-worker DevTools
+    → Native Messaging client
+      → .NET native host
+```
+
+Extension logs use the prefix `[ContextTabManager]` and include the request ID, command, timing and result/error.
+
+The native host also appends to:
+
+`%LOCALAPPDATA%\ContextTabManager\NativeHost\logs\native-host.log`
+
+On Windows, tail it while clicking **Retry**:
+
+```powershell
+Get-Content "$env:LOCALAPPDATA\ContextTabManager\NativeHost\logs\native-host.log" -Tail 50 -Wait
+```
+
+The same request ID should appear in the service-worker console and native log. If the service worker logs `send:dispatched` but the ID never appears in the native log, Chrome did not launch/reach the registered host. If the ID reaches the native log and a response is logged but the extension times out, the failure is on the Chrome return path.

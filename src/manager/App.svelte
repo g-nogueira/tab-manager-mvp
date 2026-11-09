@@ -5,7 +5,14 @@
     ContextWindow,
     TabSnapshot
   } from "../domain/context";
+  import type { DesktopCompanionStatus } from "../domain/desktop";
   import type { ManagerRequest, ManagerResponse } from "../domain/messages";
+  import {
+    createDiagnosticRequestId,
+    diagnosticError,
+    diagnosticInfo,
+    diagnosticWarn
+  } from "../services/diagnostics";
 
   let contexts: BrowserContext[] = [];
   let contextOrder: string[] = [];
@@ -24,6 +31,7 @@
   let toastUndoKind: "window-move" | "context-remove" | undefined;
   let showAllShelved = false;
   let currentChromeWindowId: number | undefined;
+  let desktopStatus: DesktopCompanionStatus | undefined;
 
   async function send(request: ManagerRequest): Promise<ManagerResponse> {
     return chrome.runtime.sendMessage(request) as Promise<ManagerResponse>;
@@ -127,6 +135,178 @@
 
   async function run(request: ManagerRequest): Promise<boolean> {
     return applyResponse(await send(request));
+  }
+
+  async function refreshDesktopStatus(): Promise<void> {
+    const requestId = createDiagnosticRequestId();
+    const startedAt = performance.now();
+
+    desktopStatus = undefined;
+
+    diagnosticInfo("popup", "desktop-status:start", {
+      requestId
+    });
+
+    try {
+      let timeoutId:
+        | ReturnType<typeof globalThis.setTimeout>
+        | undefined;
+
+      const timeout = new Promise<ManagerResponse>((resolve) => {
+        timeoutId = globalThis.setTimeout(() => {
+          diagnosticWarn("popup", "desktop-status:service-worker-timeout", {
+            requestId,
+            elapsedMs: Math.round(performance.now() - startedAt)
+          });
+
+          resolve({
+            ok: false,
+            error:
+              "Desktop companion status timed out waiting for the extension service worker."
+          });
+        }, 7000);
+      });
+
+      const response = await Promise.race([
+        send({ type: "desktop:status", requestId }),
+        timeout
+      ]);
+
+      if (timeoutId !== undefined) {
+        globalThis.clearTimeout(timeoutId);
+      }
+
+      diagnosticInfo("popup", "desktop-status:response", {
+        requestId,
+        ok: response.ok,
+        hasDesktopStatus: response.ok
+          ? Boolean(response.desktopStatus)
+          : false,
+        elapsedMs: Math.round(performance.now() - startedAt)
+      });
+
+      if (!response.ok) {
+        desktopStatus = {
+          available: false,
+          healthy: false,
+          canPrepareDesktopForFocus: false,
+          reason: response.error
+        };
+        return;
+      }
+
+      if (!response.desktopStatus) {
+        diagnosticWarn("popup", "desktop-status:missing-payload", {
+          requestId
+        });
+
+        desktopStatus = {
+          available: false,
+          healthy: false,
+          canPrepareDesktopForFocus: false,
+          reason:
+            "The extension service worker did not return companion status. Reload the unpacked extension in chrome://extensions."
+        };
+        return;
+      }
+
+      desktopStatus = response.desktopStatus;
+
+      diagnosticInfo("popup", "desktop-status:applied", {
+        requestId,
+        available: desktopStatus.available,
+        healthy: desktopStatus.healthy,
+        platform: desktopStatus.platform,
+        hostVersion: desktopStatus.hostVersion,
+        protocolVersion: desktopStatus.protocolVersion
+      });
+    } catch (cause) {
+      diagnosticError("popup", "desktop-status:failed", cause, {
+        requestId,
+        elapsedMs: Math.round(performance.now() - startedAt)
+      });
+
+      desktopStatus = {
+        available: false,
+        healthy: false,
+        canPrepareDesktopForFocus: false,
+        reason: cause instanceof Error ? cause.message : String(cause)
+      };
+    }
+  }
+
+  async function refreshAll(): Promise<void> {
+    await Promise.all([refresh(), refreshDesktopStatus()]);
+  }
+
+  function companionStatusState(
+    status: DesktopCompanionStatus | undefined
+  ):
+    | "checking"
+    | "connected"
+    | "unhealthy"
+    | "unavailable" {
+    if (!status) return "checking";
+    if (!status.available) return "unavailable";
+    if (!status.healthy) return "unhealthy";
+    return "connected";
+  }
+
+  function companionStatusLabel(
+    status: DesktopCompanionStatus | undefined
+  ): string {
+    const state = companionStatusState(status);
+
+    if (state === "checking") return "Checking companion…";
+    if (state === "unavailable") return "Companion unavailable";
+    if (state === "unhealthy") return "Companion unhealthy";
+
+    const details = [
+      status?.platform,
+      status?.hostVersion ? `v${status.hostVersion}` : undefined
+    ].filter(Boolean);
+
+    return details.length > 0
+      ? `Companion connected · ${details.join(" · ")}`
+      : "Companion connected";
+  }
+
+  function companionStatusTitle(
+    status: DesktopCompanionStatus | undefined
+  ): string {
+    if (!status) return "Checking desktop companion…";
+    if (!status.available || !status.healthy) {
+      return status.reason ?? "Desktop companion is unavailable";
+    }
+
+    const protocol = status.protocolVersion
+      ? `Protocol v${status.protocolVersion}`
+      : "Protocol version unknown";
+
+    return `${companionStatusLabel(status)} · ${protocol}`;
+  }
+
+  function canDesktopFocus(
+    status: DesktopCompanionStatus | undefined
+  ): boolean {
+    return Boolean(
+      status?.available &&
+        status.healthy &&
+        status.canPrepareDesktopForFocus
+    );
+  }
+
+  function desktopFocusTitle(
+    status: DesktopCompanionStatus | undefined
+  ): string {
+    if (canDesktopFocus(status)) {
+      return "Minimize other desktop applications and focus this context";
+    }
+
+    return (
+      status?.reason ??
+      "Desktop Focus requires the native companion"
+    );
   }
 
   function hostname(tab: TabSnapshot): string {
@@ -398,6 +578,34 @@
     await run({ type: "contexts:switch", contextId });
   }
 
+  async function focusContext(contextId: string): Promise<void> {
+    closeMenus();
+
+    if (!canDesktopFocus(desktopStatus)) {
+      error = desktopFocusTitle(desktopStatus);
+      return;
+    }
+
+    const requestId = createDiagnosticRequestId();
+
+    diagnosticInfo("popup", "desktop-focus:start", {
+      requestId,
+      contextId
+    });
+
+    const success = await run({
+      type: "contexts:focus",
+      contextId,
+      requestId
+    });
+
+    diagnosticInfo("popup", "desktop-focus:completed", {
+      requestId,
+      contextId,
+      success
+    });
+  }
+
   async function shelve(contextId: string): Promise<void> {
     closeMenus();
     await run({ type: "contexts:shelve", contextId });
@@ -441,7 +649,7 @@
         currentChromeWindowId = undefined;
       }
 
-      await refresh();
+      await refreshAll();
     })();
 
     const handleChange = () => void refresh();
@@ -477,13 +685,39 @@
       <h1>Contexts</h1>
       <p>Group Chrome windows into task contexts.</p>
     </div>
-    <button class="icon-button" title="Refresh" aria-label="Refresh" on:click={refresh}>↻</button>
+    <button class="icon-button" title="Refresh" aria-label="Refresh" on:click={refreshAll}>↻</button>
   </header>
 
   <label class="search">
     <span>⌕</span>
     <input bind:value={query} placeholder="Search contexts and tabs…" />
   </label>
+
+  <div class="companion-status">
+    <div
+      class="companion-indicator"
+      class:connected={companionStatusState(desktopStatus) === "connected"}
+      class:unhealthy={companionStatusState(desktopStatus) === "unhealthy"}
+      class:unavailable={companionStatusState(desktopStatus) === "unavailable"}
+      title={companionStatusTitle(desktopStatus)}
+    >
+      <span class="companion-dot"></span>
+      <span>{companionStatusLabel(desktopStatus)}</span>
+      {#if companionStatusState(desktopStatus) !== "connected"}
+        <button
+          class="companion-retry"
+          title="Retry companion health check"
+          on:click={refreshDesktopStatus}
+        >Retry</button>
+      {/if}
+    </div>
+
+    {#if desktopStatus?.reason && companionStatusState(desktopStatus) !== "connected"}
+      <div class="companion-reason" title={desktopStatus.reason}>
+        {desktopStatus.reason}
+      </div>
+    {/if}
+  </div>
 
   {#if targetContext}
     <div class="target-indicator">
@@ -750,7 +984,13 @@
                 {/if}
               </span>
               <div class="footer-actions">
-                <button class="primary" on:click={() => switchToContext(context.id)}>Switch</button>
+                <button
+                  class="primary"
+                  title={desktopFocusTitle(desktopStatus)}
+                  disabled={!canDesktopFocus(desktopStatus)}
+                  on:click={() => focusContext(context.id)}
+                >Focus</button>
+                <button class="secondary" on:click={() => switchToContext(context.id)}>Switch</button>
                 <button class="secondary" on:click={() => shelve(context.id)}>Shelve</button>
               </div>
             </footer>
@@ -837,9 +1077,15 @@
                 <button class="secondary danger" on:click={() => removeShelved(context)}>
                   Remove
                 </button>
-                <button class="primary" on:click={() => run({ type: "contexts:restore", contextId: context.id })}>
+                <button class="secondary" on:click={() => run({ type: "contexts:restore", contextId: context.id })}>
                   Restore
                 </button>
+                <button
+                  class="primary"
+                  title={desktopFocusTitle(desktopStatus)}
+                  disabled={!canDesktopFocus(desktopStatus)}
+                  on:click={() => focusContext(context.id)}
+                >Focus</button>
               </div>
             </footer>
           </article>
@@ -949,13 +1195,63 @@
     color: #eef9fa;
   }
 
+  .companion-status {
+    margin-top: 9px;
+  }
+
+  .companion-indicator,
   .target-indicator {
     display: flex;
     align-items: center;
     gap: 6px;
-    margin-top: 9px;
     color: #8fa2a7;
     font-size: 11px;
+  }
+
+  .target-indicator {
+    margin-top: 9px;
+  }
+
+  .companion-indicator {
+    width: fit-content;
+  }
+
+  .companion-dot {
+    width: 7px;
+    height: 7px;
+    flex: 0 0 7px;
+    border-radius: 999px;
+    background: #6d7c80;
+  }
+
+  .companion-indicator.connected .companion-dot {
+    background: #55a88a;
+  }
+
+  .companion-indicator.unhealthy .companion-dot {
+    background: #b68a55;
+  }
+
+  .companion-indicator.unavailable .companion-dot {
+    background: #7e8588;
+  }
+
+  .companion-retry {
+    padding: 0 4px;
+    border: 0;
+    background: transparent;
+    color: #7ed0d6;
+    cursor: pointer;
+  }
+
+  .companion-reason {
+    max-width: 100%;
+    margin: 3px 0 0 13px;
+    overflow: hidden;
+    color: #a98e90;
+    font-size: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .target-indicator strong {
@@ -1330,8 +1626,13 @@
     padding: 5px 9px;
   }
 
-  footer button:hover {
+  footer button:hover:not(:disabled) {
     background: #29464d;
+  }
+
+  footer button:disabled {
+    opacity: 0.48;
+    cursor: not-allowed;
   }
 
   .primary {
