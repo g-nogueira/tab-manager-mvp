@@ -155,4 +155,10 @@ On Windows, install the development companion with:
 
 `./native/ContextTabManager.NativeHost/install-windows.ps1 -ExtensionId <chrome-extension-id>`
 
+If the popup reports the companion as unavailable, run:
+
+`./native/ContextTabManager.NativeHost/diagnose-windows.ps1 -ExtensionId <chrome-extension-id>`
+
+The diagnostic checks the Chrome Native Messaging registry key, manifest, extension allowlist, executable path, and a direct framed `getStatus` round-trip with the host.
+
 The rest of the extension remains fully functional without the companion.
