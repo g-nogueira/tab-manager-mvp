@@ -224,6 +224,26 @@ chrome.runtime.onMessage.addListener(
     _sender,
     sendResponse: (response: ManagerResponse) => void
   ) => {
+    // Companion health is read-only and must not wait behind tab/window
+    // reconciliation work in the serialized queue.
+    if (request.type === "desktop:status") {
+      void getDesktopCompanionStatus()
+        .then((desktopStatus) =>
+          sendResponse({
+            ok: true,
+            desktopStatus
+          } satisfies ManagerResponse)
+        )
+        .catch((error) =>
+          sendResponse({
+            ok: false,
+            error: error instanceof Error ? error.message : String(error)
+          } satisfies ManagerResponse)
+        );
+
+      return true;
+    }
+
     void enqueue(async () => {
       try {
         await ensureBootstrapped();
@@ -244,12 +264,6 @@ chrome.runtime.onMessage.addListener(
             await prepareDesktopForFocus();
             await switchContext(request.contextId);
             break;
-
-          case "desktop:status":
-            return {
-              ok: true,
-              desktopStatus: await getDesktopCompanionStatus()
-            } satisfies ManagerResponse;
 
           case "contexts:shelve":
             await shelveContext(request.contextId);
