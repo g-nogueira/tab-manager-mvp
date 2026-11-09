@@ -20,7 +20,7 @@ async function sendNative(
   command: string,
   timeoutMs = 5000
 ): Promise<NativeHostResponse> {
-  let timeoutId: number | undefined;
+  let timeoutId: ReturnType<typeof globalThis.setTimeout> | undefined;
 
   const timeout = new Promise<never>((_resolve, reject) => {
     timeoutId = globalThis.setTimeout(() => {
