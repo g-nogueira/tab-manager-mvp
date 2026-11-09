@@ -12,6 +12,11 @@ export type ManagerRequest =
       contextWindowId: string;
       targetContextId: string;
     }
+  | {
+      type: "contexts:create-from-window";
+      sourceContextId: string;
+      contextWindowId: string;
+    }
   | { type: "contexts:undo-window-move" }
   | { type: "tabs:focus"; contextId: string; tabId: number };
 

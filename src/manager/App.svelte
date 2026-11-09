@@ -252,6 +252,24 @@
     }
   }
 
+  async function createContextFromWindow(
+    sourceContext: BrowserContext,
+    contextWindow: ContextWindow
+  ): Promise<void> {
+    const sourceWindowName = windowName(sourceContext, contextWindow);
+    closeMenus();
+
+    const success = await run({
+      type: "contexts:create-from-window",
+      sourceContextId: sourceContext.id,
+      contextWindowId: contextWindow.id
+    });
+
+    if (success) {
+      toastMessage = `Created a new context from "${sourceWindowName}".`;
+    }
+  }
+
   async function undoWindowMove(): Promise<void> {
     if (await run({ type: "contexts:undo-window-move" })) {
       toastMessage = "Move undone.";
@@ -479,6 +497,12 @@
                             on:click={(event) => event.stopPropagation()}
                             on:keydown={(event) => event.stopPropagation()}
                           >
+                            <button on:click={() => createContextFromWindow(context, contextWindow)}>
+                              Create new context from this window
+                            </button>
+
+                            <div class="menu-separator"></div>
+
                             {#if targetContext && targetContext.id !== context.id}
                               <button on:click={() => addWindow(context, contextWindow, targetContext)}>
                                 Add to {contextName(targetContext)}
