@@ -144,7 +144,7 @@ Explicit **Shelve** remains different: it intentionally preserves all context wi
 
 ## Desktop Focus companion
 
-Desktop-level **Focus** is provided by an optional .NET 8 Native Messaging companion. Focus minimizes eligible desktop application windows and then restores/switches to the selected Chrome context.
+Desktop-level **Focus** is provided by an optional .NET 10 Native Messaging companion. Focus minimizes eligible desktop application windows and then restores/switches to the selected Chrome context.
 
 - Architecture: [docs/architecture/desktop-focus.md](docs/architecture/desktop-focus.md)
 - ADR 0001: [Native Messaging](docs/adr/0001-native-messaging-desktop-companion.md)
