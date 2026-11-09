@@ -1,5 +1,9 @@
 import type { WindowBinding } from "../domain/context";
 import {
+  getDesktopCapabilities,
+  prepareDesktopForFocus
+} from "../services/desktop-companion-client";
+import {
   cleanupShelvedContexts,
   removeShelvedContext,
   setContextPinned,
@@ -235,6 +239,17 @@ chrome.runtime.onMessage.addListener(
           case "contexts:switch":
             await switchContext(request.contextId);
             break;
+
+          case "contexts:focus":
+            await prepareDesktopForFocus();
+            await switchContext(request.contextId);
+            break;
+
+          case "desktop:capabilities":
+            return {
+              ok: true,
+              desktopCapabilities: await getDesktopCapabilities()
+            };
 
           case "contexts:shelve":
             await shelveContext(request.contextId);
