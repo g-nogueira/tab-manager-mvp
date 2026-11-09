@@ -5,6 +5,7 @@
     ContextWindow,
     TabSnapshot
   } from "../domain/context";
+  import type { DesktopCapabilities } from "../domain/desktop";
   import type { ManagerRequest, ManagerResponse } from "../domain/messages";
 
   let contexts: BrowserContext[] = [];
@@ -24,6 +25,7 @@
   let toastUndoKind: "window-move" | "context-remove" | undefined;
   let showAllShelved = false;
   let currentChromeWindowId: number | undefined;
+  let desktopCapabilities: DesktopCapabilities | undefined;
 
   async function send(request: ManagerRequest): Promise<ManagerResponse> {
     return chrome.runtime.sendMessage(request) as Promise<ManagerResponse>;
@@ -127,6 +129,44 @@
 
   async function run(request: ManagerRequest): Promise<boolean> {
     return applyResponse(await send(request));
+  }
+
+  async function refreshDesktopCapabilities(): Promise<void> {
+    try {
+      const response = await send({ type: "desktop:capabilities" });
+
+      if (response.ok) {
+        desktopCapabilities = response.desktopCapabilities;
+      }
+    } catch (cause) {
+      desktopCapabilities = {
+        available: false,
+        canPrepareDesktopForFocus: false,
+        reason: cause instanceof Error ? cause.message : String(cause)
+      };
+    }
+  }
+
+  async function refreshAll(): Promise<void> {
+    await Promise.all([refresh(), refreshDesktopCapabilities()]);
+  }
+
+  function canDesktopFocus(): boolean {
+    return Boolean(
+      desktopCapabilities?.available &&
+        desktopCapabilities.canPrepareDesktopForFocus
+    );
+  }
+
+  function desktopFocusTitle(): string {
+    if (canDesktopFocus()) {
+      return "Minimize other desktop applications and focus this context";
+    }
+
+    return (
+      desktopCapabilities?.reason ??
+      "Desktop Focus requires the native companion"
+    );
   }
 
   function hostname(tab: TabSnapshot): string {
@@ -398,6 +438,17 @@
     await run({ type: "contexts:switch", contextId });
   }
 
+  async function focusContext(contextId: string): Promise<void> {
+    closeMenus();
+
+    if (!canDesktopFocus()) {
+      error = desktopFocusTitle();
+      return;
+    }
+
+    await run({ type: "contexts:focus", contextId });
+  }
+
   async function shelve(contextId: string): Promise<void> {
     closeMenus();
     await run({ type: "contexts:shelve", contextId });
@@ -441,7 +492,7 @@
         currentChromeWindowId = undefined;
       }
 
-      await refresh();
+      await refreshAll();
     })();
 
     const handleChange = () => void refresh();
@@ -477,7 +528,7 @@
       <h1>Contexts</h1>
       <p>Group Chrome windows into task contexts.</p>
     </div>
-    <button class="icon-button" title="Refresh" aria-label="Refresh" on:click={refresh}>↻</button>
+    <button class="icon-button" title="Refresh" aria-label="Refresh" on:click={refreshAll}>↻</button>
   </header>
 
   <label class="search">
@@ -750,7 +801,13 @@
                 {/if}
               </span>
               <div class="footer-actions">
-                <button class="primary" on:click={() => switchToContext(context.id)}>Switch</button>
+                <button
+                  class="primary"
+                  title={desktopFocusTitle()}
+                  disabled={!canDesktopFocus()}
+                  on:click={() => focusContext(context.id)}
+                >Focus</button>
+                <button class="secondary" on:click={() => switchToContext(context.id)}>Switch</button>
                 <button class="secondary" on:click={() => shelve(context.id)}>Shelve</button>
               </div>
             </footer>
@@ -837,9 +894,15 @@
                 <button class="secondary danger" on:click={() => removeShelved(context)}>
                   Remove
                 </button>
-                <button class="primary" on:click={() => run({ type: "contexts:restore", contextId: context.id })}>
+                <button class="secondary" on:click={() => run({ type: "contexts:restore", contextId: context.id })}>
                   Restore
                 </button>
+                <button
+                  class="primary"
+                  title={desktopFocusTitle()}
+                  disabled={!canDesktopFocus()}
+                  on:click={() => focusContext(context.id)}
+                >Focus</button>
               </div>
             </footer>
           </article>
@@ -1330,8 +1393,13 @@
     padding: 5px 9px;
   }
 
-  footer button:hover {
+  footer button:hover:not(:disabled) {
     background: #29464d;
+  }
+
+  footer button:disabled {
+    opacity: 0.48;
+    cursor: not-allowed;
   }
 
   .primary {
