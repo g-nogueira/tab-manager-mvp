@@ -16,47 +16,40 @@ interface NativeHostResponse {
   error?: string;
 }
 
-function sendNative(
+async function sendNative(
   command: string,
   timeoutMs = 5000
 ): Promise<NativeHostResponse> {
-  return new Promise((resolve, reject) => {
-    let settled = false;
+  let timeoutId: number | undefined;
 
-    const timeoutId = globalThis.setTimeout(() => {
-      if (settled) return;
-      settled = true;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timeoutId = globalThis.setTimeout(() => {
       reject(
         new Error(
           `Desktop companion timed out after ${timeoutMs}ms while running ${command}`
         )
       );
     }, timeoutMs);
-
-    chrome.runtime.sendNativeMessage(
-      NATIVE_HOST_NAME,
-      { command },
-      (response: NativeHostResponse | undefined) => {
-        if (settled) return;
-        settled = true;
-        globalThis.clearTimeout(timeoutId);
-
-        const runtimeError = chrome.runtime.lastError;
-
-        if (runtimeError) {
-          reject(new Error(runtimeError.message));
-          return;
-        }
-
-        if (!response) {
-          reject(new Error("Desktop companion returned no response"));
-          return;
-        }
-
-        resolve(response);
-      }
-    );
   });
+
+  try {
+    const nativeRequest = chrome.runtime.sendNativeMessage(
+      NATIVE_HOST_NAME,
+      { command }
+    ) as Promise<NativeHostResponse>;
+
+    const response = await Promise.race([nativeRequest, timeout]);
+
+    if (!response) {
+      throw new Error("Desktop companion returned no response");
+    }
+
+    return response;
+  } finally {
+    if (timeoutId !== undefined) {
+      globalThis.clearTimeout(timeoutId);
+    }
+  }
 }
 
 export async function getDesktopCompanionStatus(): Promise<DesktopCompanionStatus> {
