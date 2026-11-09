@@ -1,6 +1,6 @@
 import type { WindowBinding } from "../domain/context";
 import {
-  getDesktopCapabilities,
+  getDesktopCompanionStatus,
   prepareDesktopForFocus
 } from "../services/desktop-companion-client";
 import {
@@ -245,10 +245,10 @@ chrome.runtime.onMessage.addListener(
             await switchContext(request.contextId);
             break;
 
-          case "desktop:capabilities":
+          case "desktop:status":
             return {
               ok: true,
-              desktopCapabilities: await getDesktopCapabilities()
+              desktopStatus: await getDesktopCompanionStatus()
             } satisfies ManagerResponse;
 
           case "contexts:shelve":
