@@ -18,7 +18,7 @@ The extension remains fully usable when the companion is not installed. Only **F
 flowchart LR
     UI["Manager popup"] --> SW["MV3 service worker"]
     SW --> Client["DesktopCompanionClient"]
-    Client -->|"Native Messaging JSON"| Host[".NET 8 Native Host"]
+    Client -->|"Native Messaging JSON"| Host[".NET 10 Native Host"]
     Host --> Dispatcher["DesktopCommandDispatcher"]
     Dispatcher --> Service["IDesktopService"]
     Service --> Win["WindowsDesktopService"]
@@ -59,7 +59,8 @@ Host name: `com.gnogueira.context_tab_manager`.
 
 | Command | Purpose |
 | --- | --- |
-| `getCapabilities` | Reports platform and whether Desktop Focus is supported. |
+| `getStatus` | Health/liveness round-trip; reports host version, protocol version, platform and capabilities. |
+| `getCapabilities` | Backward-compatible capability-only response. |
 | `prepareDesktopForFocus` | Prepares the desktop for a context Focus operation. |
 
 There is no arbitrary process execution, shell command, path argument, process name argument, or raw OS-window handle in the protocol.
@@ -82,7 +83,9 @@ The Windows implementation enumerates visible top-level windows and excludes the
 
 ## Failure behavior
 
-Without a working companion, normal extension operations continue working. **Focus** is disabled after capability detection, while **Switch**, **Restore**, **Shelve**, search and organization remain extension-only.
+The popup calls `getStatus` as an explicit health probe. A healthy response proves that Chrome could launch the registered Native Messaging host, exchange a correctly framed message and receive a valid application response. The status includes host version, protocol version, platform and Focus capability.
+
+Without a working companion, normal extension operations continue working. **Focus** is disabled after status detection, while **Switch**, **Restore**, **Shelve**, search and organization remain extension-only.
 
 ## Windows development install
 
