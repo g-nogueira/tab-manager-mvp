@@ -140,3 +140,19 @@ Closing a Chrome window now follows the context model instead of creating hidden
 - legacy mixed active/`closed` member windows are pruned during reconciliation so they are not unexpectedly restored by a later context switch.
 
 Explicit **Shelve** remains different: it intentionally preserves all context windows for restoration.
+
+
+## Desktop Focus companion
+
+Desktop-level **Focus** is provided by an optional .NET 8 Native Messaging companion. Focus minimizes eligible desktop application windows and then restores/switches to the selected Chrome context.
+
+- Architecture: [docs/architecture/desktop-focus.md](docs/architecture/desktop-focus.md)
+- ADR 0001: [Native Messaging](docs/adr/0001-native-messaging-desktop-companion.md)
+- ADR 0002: [Desktop abstraction](docs/adr/0002-capability-oriented-desktop-abstraction.md)
+- ADR 0003: [Focus semantics](docs/adr/0003-focus-is-one-way.md)
+
+On Windows, install the development companion with:
+
+`./native/ContextTabManager.NativeHost/install-windows.ps1 -ExtensionId <chrome-extension-id>`
+
+The rest of the extension remains fully functional without the companion.
