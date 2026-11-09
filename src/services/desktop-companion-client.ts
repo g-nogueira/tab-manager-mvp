@@ -16,12 +16,31 @@ interface NativeHostResponse {
   error?: string;
 }
 
-function sendNative(command: string): Promise<NativeHostResponse> {
+function sendNative(
+  command: string,
+  timeoutMs = 5000
+): Promise<NativeHostResponse> {
   return new Promise((resolve, reject) => {
+    let settled = false;
+
+    const timeoutId = globalThis.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(
+        new Error(
+          `Desktop companion timed out after ${timeoutMs}ms while running ${command}`
+        )
+      );
+    }, timeoutMs);
+
     chrome.runtime.sendNativeMessage(
       NATIVE_HOST_NAME,
       { command },
       (response: NativeHostResponse | undefined) => {
+        if (settled) return;
+        settled = true;
+        globalThis.clearTimeout(timeoutId);
+
         const runtimeError = chrome.runtime.lastError;
 
         if (runtimeError) {
