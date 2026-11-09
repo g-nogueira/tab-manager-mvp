@@ -10,6 +10,10 @@ public sealed class DesktopCommandDispatcher(IDesktopService desktopService)
     {
         return request.Command switch
         {
+            "getStatus" => NativeResponse.Success(
+                request.Command,
+                status: GetStatus()),
+
             "getCapabilities" => NativeResponse.Success(
                 request.Command,
                 capabilities: desktopService.GetCapabilities()),
@@ -22,6 +26,23 @@ public sealed class DesktopCommandDispatcher(IDesktopService desktopService)
                 request.Command,
                 $"Unsupported command: {request.Command}")
         };
+    }
+
+    private DesktopCompanionStatus GetStatus()
+    {
+        var capabilities = desktopService.GetCapabilities();
+        var version =
+            typeof(DesktopCommandDispatcher).Assembly
+                .GetName()
+                .Version?
+                .ToString(3)
+            ?? "unknown";
+
+        return new DesktopCompanionStatus(
+            version,
+            ProtocolVersion: 1,
+            capabilities.Platform,
+            capabilities.CanPrepareDesktopForFocus);
     }
 
     private async Task<NativeResponse> PrepareDesktopForFocusAsync(
