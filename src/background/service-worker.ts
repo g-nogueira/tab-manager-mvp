@@ -138,11 +138,6 @@ chrome.windows.onFocusChanged.addListener((windowId) => {
   });
 });
 
-chrome.windows.onBoundsChanged.addListener((window) => {
-  if (window.id === undefined || window.type !== "normal") return;
-  sync(window.id);
-});
-
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   void enqueue(async () => {
     try {
