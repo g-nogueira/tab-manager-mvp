@@ -71,6 +71,29 @@ function sync(windowId?: number, touchedFocus = false): void {
   void enqueue(() => syncWindow(windowId, { touchedFocus }));
 }
 
+interface OptionalBoundsChangedEvent {
+  addListener(listener: (window: chrome.windows.Window) => void): void;
+}
+
+function registerBoundsChangedListenerWhenAvailable(): void {
+  const windowsApi = chrome.windows as typeof chrome.windows &
+    Record<string, unknown>;
+
+  // Firefox does not implement windows.onBoundsChanged. Use a computed
+  // capability lookup so the shared background bundle can retain Chrome's
+  // immediate layout snapshots without depending on the API in Firefox.
+  const event = windowsApi[
+    "on" + "BoundsChanged"
+  ] as OptionalBoundsChangedEvent | undefined;
+
+  event?.addListener((window) => {
+    if (window.id === undefined || window.type !== "normal") return;
+    sync(window.id);
+  });
+}
+
+registerBoundsChangedListenerWhenAvailable();
+
 async function managerState(): Promise<ManagerResponse> {
   await cleanupShelvedContexts();
   const contexts = await loadContexts();
