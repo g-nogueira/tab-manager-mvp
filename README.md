@@ -1,6 +1,6 @@
 # Tab Manager MVP
 
-Chrome extension for organizing browser windows as persistent named task contexts.
+Cross-browser WebExtension for organizing browser windows as persistent named task contexts. Chrome and Firefox are supported from the same shared extension core.
 
 ## Current model
 
@@ -26,18 +26,41 @@ AI-assisted title generation remains intentionally deferred until the context/wo
 ```bash
 npm install
 npm run check
-npm run build
 ```
 
-Then in Chrome:
+### Chrome
+
+```bash
+npm run build:chrome
+```
+
+Then:
 
 1. Open `chrome://extensions`.
 2. Enable **Developer mode**.
 3. Click **Load unpacked**.
-4. Select the generated `dist/` directory.
+4. Select `dist/`.
 5. Pin **Context Tab Manager** and click its toolbar icon.
 
-After changes, run `npm run build` again and click **Reload** on the extension card.
+The default `npm run build` remains an alias for the Chrome build.
+
+### Firefox
+
+```bash
+npm run build:firefox
+npm run lint:firefox
+```
+
+Then:
+
+1. Open `about:debugging#/runtime/this-firefox`.
+2. Click **Load Temporary Add-on…**.
+3. Select `dist-firefox/manifest.json`.
+4. Pin **Context Tab Manager** and click its toolbar icon.
+
+After changes, rebuild the relevant target and explicitly reload the extension in the browser's extension debugging page.
+
+The Firefox build uses the stable add-on ID `context-tab-manager@g-nogueira.local`. Browser extension storage is local to each browser, so existing Chrome contexts do not automatically appear in Firefox.
 
 ## Multi-window test pass
 
@@ -144,30 +167,58 @@ Explicit **Shelve** remains different: it intentionally preserves all context wi
 
 ## Desktop Focus companion
 
-Desktop-level **Focus** is provided by an optional .NET 10 Native Messaging companion. Focus minimizes eligible desktop application windows and then restores/switches to the selected Chrome context.
+Desktop-level **Focus** is provided by an optional .NET 10 Native Messaging companion. The same native executable and protocol are shared by Chrome and Firefox. Focus minimizes eligible desktop application windows and then restores/switches to the selected browser context.
 
 - Architecture: [docs/architecture/desktop-focus.md](docs/architecture/desktop-focus.md)
 - ADR 0001: [Native Messaging](docs/adr/0001-native-messaging-desktop-companion.md)
 - ADR 0002: [Desktop abstraction](docs/adr/0002-capability-oriented-desktop-abstraction.md)
 - ADR 0003: [Focus semantics](docs/adr/0003-focus-is-one-way.md)
+- Cross-browser architecture: [docs/architecture/browser-portability.md](docs/architecture/browser-portability.md)
+- ADR 0004: [Browser-specific boundaries](docs/adr/0004-browser-specific-boundaries.md)
 
-For an unpacked Windows build:
+### Windows Native Messaging registration
 
-1. Run `npm run build`.
-2. In `chrome://extensions`, click **Reload** for Context Tab Manager so Chrome activates the latest manifest and service worker.
-3. Install the companion with:
+For Chrome:
 
-   `./native/ContextTabManager.NativeHost/install-windows.ps1 -ExtensionId <chrome-extension-id>`
+```powershell
+./native/ContextTabManager.NativeHost/install-windows.ps1 `
+  -Browser Chrome `
+  -ChromeExtensionId <chrome-extension-id>
+```
 
-4. Reload the extension once more before testing **Focus**.
+The legacy `-ExtensionId <chrome-extension-id>` parameter remains supported.
 
-Whenever `dist`, `manifest.json`, or the service worker changes, rebuild and explicitly reload the unpacked extension in Chrome.
+For Firefox:
 
-If the popup reports the companion as unavailable, run:
+```powershell
+./native/ContextTabManager.NativeHost/install-windows.ps1 -Browser Firefox
+```
 
-`./native/ContextTabManager.NativeHost/diagnose-windows.ps1 -ExtensionId <chrome-extension-id>`
+Firefox uses the stable add-on ID `context-tab-manager@g-nogueira.local`, so no generated extension ID needs to be copied.
 
-The diagnostic checks the Chrome Native Messaging registry key, manifest, extension allowlist, executable path, and a direct framed `getStatus` round-trip with the host.
+To register the same companion for both browsers:
+
+```powershell
+./native/ContextTabManager.NativeHost/install-windows.ps1 `
+  -Browser Both `
+  -ChromeExtensionId <chrome-extension-id>
+```
+
+After registration, reload the extension in the target browser before testing **Focus**.
+
+Diagnostics:
+
+```powershell
+# Chrome
+./native/ContextTabManager.NativeHost/diagnose-windows.ps1 `
+  -Browser Chrome `
+  -ChromeExtensionId <chrome-extension-id>
+
+# Firefox
+./native/ContextTabManager.NativeHost/diagnose-windows.ps1 -Browser Firefox
+```
+
+The diagnostic checks the browser-specific Native Messaging registry key, manifest, extension allowlist, executable path, and a direct framed `getStatus` round-trip with the host.
 
 The rest of the extension remains fully functional without the companion.
 
@@ -195,4 +246,4 @@ On Windows, tail it while clicking **Retry**:
 Get-Content "$env:LOCALAPPDATA\ContextTabManager\NativeHost\logs\native-host.log" -Tail 50 -Wait
 ```
 
-The same request ID should appear in the service-worker console and native log. If the service worker logs `send:dispatched` but the ID never appears in the native log, Chrome did not launch/reach the registered host. If the ID reaches the native log and a response is logged but the extension times out, the failure is on the Chrome return path.
+The same request ID should appear in the background-process console and native log. If the background process logs `send:dispatched` but the ID never appears in the native log, the browser did not launch/reach the registered host. If the ID reaches the native log and a response is logged but the extension times out, the failure is on the browser return path.
