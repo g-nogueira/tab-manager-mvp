@@ -31,6 +31,9 @@ export default defineConfig(({ mode }) => {
   const outDir = target === "firefox" ? "dist-firefox" : "dist";
 
   return {
+    define: {
+      __BROWSER_TARGET__: JSON.stringify(target)
+    },
     publicDir: false,
     plugins: [svelte(), manifestPlugin(target, outDir)],
     build: {
