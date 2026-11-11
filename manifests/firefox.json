@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Context Tab Manager",
+  "description": "Organize browser windows as persistent named contexts.",
+  "version": "0.2.0",
+  "permissions": [
+    "tabs",
+    "storage",
+    "contextMenus",
+    "nativeMessaging"
+  ],
+  "background": {
+    "scripts": ["service-worker.js"],
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Open Context Tab Manager",
+    "default_popup": "manager/index.html"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "context-tab-manager@g-nogueira.local"
+    }
+  }
+}
