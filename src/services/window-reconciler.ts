@@ -211,6 +211,7 @@ function contextFromWindow(window: chrome.windows.Window): BrowserContext {
   return {
     id: newId(),
     windows: [contextWindow],
+    desktopWindows: [],
     pinned: false,
     createdAt: timestamp,
     updatedAt: timestamp,
@@ -817,6 +818,7 @@ export async function createContextFromWindow(
   const newContext: BrowserContext = {
     id: newId(),
     windows: [contextWindow],
+    desktopWindows: [],
     pinned: false,
     shelvedAt:
       contextWindow.state === "shelved" || contextWindow.windowId === undefined
@@ -954,7 +956,10 @@ export async function addWindowToContext(
     };
   }
 
-  if (source.windows.length === 0) {
+  if (
+    source.windows.length === 0 &&
+    source.desktopWindows.length === 0
+  ) {
     contexts.splice(sourceIndex, 1);
   }
 
@@ -1039,7 +1044,10 @@ export async function inheritDetachedTabWindow(
     contextWindowId: sourceContextWindow.id
   };
 
-  if (destinationContext.windows.length === 0) {
+  if (
+    destinationContext.windows.length === 0 &&
+    destinationContext.desktopWindows.length === 0
+  ) {
     contexts.splice(destinationContextIndex, 1);
   } else {
     destinationContext.updatedAt = now();
@@ -1073,6 +1081,7 @@ export async function undoLastWindowMove(): Promise<void> {
       id: undo.sourceContextId,
       name: undo.sourceContextName,
       windows: [],
+      desktopWindows: [],
       pinned: false,
       createdAt: undo.sourceContextCreatedAt,
       updatedAt: now(),
@@ -1107,7 +1116,10 @@ export async function undoLastWindowMove(): Promise<void> {
     };
   }
 
-  if (target.windows.length === 0) {
+  if (
+    target.windows.length === 0 &&
+    target.desktopWindows.length === 0
+  ) {
     const targetIndex = contexts.findIndex((context) => context.id === target.id);
     if (targetIndex >= 0) {
       contexts.splice(targetIndex, 1);
@@ -1118,7 +1130,11 @@ export async function undoLastWindowMove(): Promise<void> {
   await saveBindings(bindings);
 
   const organizationTargetId = await loadOrganizationTargetId();
-  if (organizationTargetId === target.id && target.windows.length === 0) {
+  if (
+    organizationTargetId === target.id &&
+    target.windows.length === 0 &&
+    target.desktopWindows.length === 0
+  ) {
     await saveOrganizationTargetId(source.id);
   }
 
