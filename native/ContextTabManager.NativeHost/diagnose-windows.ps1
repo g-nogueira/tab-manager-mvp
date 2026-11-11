@@ -1,15 +1,33 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
+    [ValidateSet('Chrome', 'Firefox')]
+    [string]$Browser = 'Chrome',
+
+    [Alias('ExtensionId')]
     [ValidatePattern('^[a-p]{32}$')]
-    [string]$ExtensionId
+    [string]$ChromeExtensionId,
+
+    [string]$FirefoxExtensionId = 'context-tab-manager@g-nogueira.local'
 )
 
 $ErrorActionPreference = 'Stop'
 
 $hostName = 'com.gnogueira.context_tab_manager'
-$registryPath = "HKCU:\Software\Google\Chrome\NativeMessagingHosts\$hostName"
-$expectedOrigin = "chrome-extension://$ExtensionId/"
+
+if ($Browser -eq 'Chrome') {
+    if ([string]::IsNullOrWhiteSpace($ChromeExtensionId)) {
+        throw 'ChromeExtensionId is required for Chrome diagnostics. The legacy -ExtensionId parameter name is also supported.'
+    }
+
+    $registryPath = "HKCU:\Software\Google\Chrome\NativeMessagingHosts\$hostName"
+    $expectedPermissionKey = 'allowed_origins'
+    $expectedPermissionValue = "chrome-extension://$ChromeExtensionId/"
+}
+else {
+    $registryPath = "HKCU:\Software\Mozilla\NativeMessagingHosts\$hostName"
+    $expectedPermissionKey = 'allowed_extensions'
+    $expectedPermissionValue = $FirefoxExtensionId
+}
 
 function Write-Check {
     param(
@@ -22,7 +40,15 @@ function Write-Check {
 }
 
 Write-Host "Context Tab Manager companion diagnostics"
-Write-Host "Extension ID: $ExtensionId"
+Write-Host "Browser: $Browser"
+
+if ($Browser -eq 'Chrome') {
+    Write-Host "Chrome extension ID: $ChromeExtensionId"
+}
+else {
+    Write-Host "Firefox extension ID: $FirefoxExtensionId"
+}
+
 Write-Host ""
 
 if (-not (Test-Path $registryPath)) {
@@ -63,13 +89,14 @@ else {
     Write-Check $true "Manifest host name is correct: $hostName"
 }
 
-$allowedOrigins = @($manifest.allowed_origins)
-if ($allowedOrigins -notcontains $expectedOrigin) {
-    Write-Check $false "Manifest does not allow this extension origin: $expectedOrigin"
-    Write-Host "       Allowed origins: $($allowedOrigins -join ', ')"
+$allowedValues = @($manifest.$expectedPermissionKey)
+
+if ($allowedValues -notcontains $expectedPermissionValue) {
+    Write-Check $false "Manifest does not allow this extension: $expectedPermissionValue"
+    Write-Host "       $expectedPermissionKey: $($allowedValues -join ', ')"
 }
 else {
-    Write-Check $true "Manifest allows extension origin: $expectedOrigin"
+    Write-Check $true "Manifest allows extension: $expectedPermissionValue"
 }
 
 $executablePath = [string]$manifest.path
@@ -102,7 +129,7 @@ try {
         throw 'Process.Start returned false.'
     }
 
-    $requestJson = '{"command":"getStatus"}'
+    $requestJson = '{"command":"getStatus","requestId":"diagnose"}'
     $payload = [System.Text.Encoding]::UTF8.GetBytes($requestJson)
     $length = [System.BitConverter]::GetBytes([uint32]$payload.Length)
 
@@ -214,5 +241,5 @@ else {
 }
 
 Write-Host ""
-Write-Host 'Local companion registration and direct host health are valid.'
-Write-Host 'If Chrome still fails, compare the request ID in popup/service-worker DevTools with native-host.log.'
+Write-Host "Local $Browser companion registration and direct host health are valid."
+Write-Host 'If the browser still fails, compare the request ID in extension diagnostics with native-host.log.'

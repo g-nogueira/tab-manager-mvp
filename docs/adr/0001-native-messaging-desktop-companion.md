@@ -1,34 +1,49 @@
-# ADR 0001: Use Chrome Native Messaging for the desktop companion
+# ADR 0001: Use WebExtensions Native Messaging for the desktop companion
 
 - Status: Accepted
 - Date: 2026-11-09
+- Updated: 2026-11-11
 
 ## Context
 
-Desktop Focus needs OS-level window operations that a Chrome extension cannot perform. Candidate mechanisms included localhost HTTP, a permanently running daemon/tray process, and Chrome Native Messaging.
+Desktop Focus needs OS-level window operations that a browser extension cannot perform. Candidate mechanisms included localhost HTTP, a permanently running daemon/tray process, and WebExtensions Native Messaging.
 
 ## Decision
 
-Use Chrome Native Messaging with a small .NET native host.
+Use browser Native Messaging with a small .NET native host.
 
 ```mermaid
 flowchart LR
-    Extension["Chrome extension"] --> Chrome["Chrome Native Messaging"]
-    Chrome --> Host["ContextTabManager.NativeHost"]
+    Extension["Chrome / Firefox extension"] --> Messaging["WebExtensions Native Messaging"]
+    Messaging --> Host["ContextTabManager.NativeHost"]
     Host --> OS["Desktop OS APIs"]
 ```
 
-The Windows installer registers the host per-user and restricts `allowed_origins` to the exact extension ID.
+The host executable and JSON protocol are shared across browsers. Browser-specific installation supplies the appropriate native manifest and registration:
+
+- Chrome uses `allowed_origins`;
+- Firefox uses `allowed_extensions`.
+
+The Windows installer registers the host per user and restricts each native manifest to the exact extension/add-on ID.
 
 ## Rationale
 
-Native Messaging avoids a listening TCP port, custom authentication, and permanent process lifetime while providing an explicit extension-to-host allowlist.
+Native Messaging avoids a listening TCP port, custom authentication, and permanent process lifetime while providing explicit browser-managed extension-to-host allowlisting.
 
 ## Consequences
 
-Positive: smaller local attack surface, Chrome-controlled host lifetime, and a clear browser/OS boundary.
+Positive:
 
-Negative: OS-specific installation is required and unpacked builds must supply their extension ID.
+- smaller local attack surface than a general localhost API;
+- browser-controlled host lifetime;
+- clear browser/OS boundary;
+- the same native executable works for Chrome and Firefox.
+
+Negative:
+
+- installation requires browser-specific registration;
+- development builds must use stable/known browser extension IDs;
+- each additional browser may require its own native manifest/registration rules.
 
 ## Rejected alternatives
 
