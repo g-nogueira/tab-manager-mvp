@@ -41,7 +41,7 @@ import {
   undoLastWindowMove
 } from "../services/window-reconciler";
 
-diagnosticInfo("service-worker", "loaded", {
+diagnosticInfo("background", "loaded", {
   extensionVersion: chrome.runtime.getManifest().version,
   nativeMessagingPermission:
     chrome.runtime.getManifest().permissions?.includes("nativeMessaging") ?? false
@@ -240,13 +240,13 @@ chrome.runtime.onMessage.addListener(
       const { requestId } = request;
       const startedAt = performance.now();
 
-      diagnosticInfo("service-worker", "desktop-status:received", {
+      diagnosticInfo("background", "desktop-status:received", {
         requestId
       });
 
       void getDesktopCompanionStatus(requestId)
         .then((desktopStatus) => {
-          diagnosticInfo("service-worker", "desktop-status:completed", {
+          diagnosticInfo("background", "desktop-status:completed", {
             requestId,
             available: desktopStatus.available,
             healthy: desktopStatus.healthy,
@@ -262,7 +262,7 @@ chrome.runtime.onMessage.addListener(
         })
         .catch((error) => {
           diagnosticError(
-            "service-worker",
+            "background",
             "desktop-status:failed",
             error,
             {
@@ -299,7 +299,7 @@ chrome.runtime.onMessage.addListener(
           case "contexts:focus": {
             const requestId = request.requestId;
 
-            diagnosticInfo("service-worker", "desktop-focus:received", {
+            diagnosticInfo("background", "desktop-focus:received", {
               requestId,
               contextId: request.contextId
             });
@@ -307,7 +307,7 @@ chrome.runtime.onMessage.addListener(
             await prepareDesktopForFocus(requestId);
             await switchContext(request.contextId);
 
-            diagnosticInfo("service-worker", "desktop-focus:completed", {
+            diagnosticInfo("background", "desktop-focus:completed", {
               requestId,
               contextId: request.contextId
             });
