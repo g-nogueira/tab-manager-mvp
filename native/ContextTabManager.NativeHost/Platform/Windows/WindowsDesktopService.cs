@@ -161,7 +161,7 @@ public sealed class WindowsDesktopService : IDesktopService
                     return true;
                 }
 
-                _ = GetWindowThreadProcessId(
+                GetWindowThreadProcessId(
                     windowHandle,
                     out var processId);
 
