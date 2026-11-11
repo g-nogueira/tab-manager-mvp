@@ -6,8 +6,8 @@ import {
   loadUndoWindowMove
 } from "./context-store";
 import {
-  addChromeWindowToContext,
-  createContextFromChromeWindow,
+  addBrowserWindowToContext,
+  createContextFromBrowserWindow,
   undoLastWindowMove
 } from "./window-reconciler";
 
@@ -183,7 +183,7 @@ export async function handleTabContextMenuClick(
   }
 
   if (id === CREATE_NEW_CONTEXT_ID) {
-    await createContextFromChromeWindow(tab.windowId);
+    await createContextFromBrowserWindow(tab.windowId);
     await rebuildTabContextMenus(tab.windowId);
     return;
   }
@@ -198,6 +198,6 @@ export async function handleTabContextMenuClick(
 
   if (!targetContextId) return;
 
-  await addChromeWindowToContext(tab.windowId, targetContextId);
+  await addBrowserWindowToContext(tab.windowId, targetContextId);
   await rebuildTabContextMenus(tab.windowId);
 }
