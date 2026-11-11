@@ -30,7 +30,7 @@
   let toastMessage = "";
   let toastUndoKind: "window-move" | "context-remove" | undefined;
   let showAllShelved = false;
-  let currentChromeWindowId: number | undefined;
+  let currentBrowserWindowId: number | undefined;
   let desktopStatus: DesktopCompanionStatus | undefined;
 
   async function send(request: ManagerRequest): Promise<ManagerResponse> {
@@ -39,8 +39,8 @@
 
   function isCurrentWindow(window: ContextWindow): boolean {
     return (
-      currentChromeWindowId !== undefined &&
-      window.windowId === currentChromeWindowId
+      currentBrowserWindowId !== undefined &&
+      window.windowId === currentBrowserWindowId
     );
   }
 
@@ -205,7 +205,7 @@
           healthy: false,
           canPrepareDesktopForFocus: false,
           reason:
-            "The extension service worker did not return companion status. Reload the unpacked extension in chrome://extensions."
+            "The extension background process did not return companion status. Reload the extension from your browser's extension debugging page."
         };
         return;
       }
@@ -644,9 +644,9 @@
     void (async () => {
       try {
         const currentWindow = await chrome.windows.getCurrent();
-        currentChromeWindowId = currentWindow.id;
+        currentBrowserWindowId = currentWindow.id;
       } catch {
-        currentChromeWindowId = undefined;
+        currentBrowserWindowId = undefined;
       }
 
       await refreshAll();
@@ -683,7 +683,7 @@
   <header>
     <div>
       <h1>Contexts</h1>
-      <p>Group Chrome windows into task contexts.</p>
+      <p>Group browser windows into task contexts.</p>
     </div>
     <button class="icon-button" title="Refresh" aria-label="Refresh" on:click={refreshAll}>↻</button>
   </header>
