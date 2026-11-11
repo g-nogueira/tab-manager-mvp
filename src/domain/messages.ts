@@ -1,5 +1,8 @@
 import type { BrowserContext } from "./context";
-import type { DesktopCompanionStatus } from "./desktop";
+import type {
+  DesktopCompanionStatus,
+  DesktopWindowCandidate
+} from "./desktop";
 
 export type ManagerRequest =
   | { type: "contexts:list" }
@@ -7,6 +10,17 @@ export type ManagerRequest =
   | { type: "contexts:switch"; contextId: string }
   | { type: "contexts:focus"; contextId: string; requestId?: string }
   | { type: "desktop:status"; requestId: string }
+  | { type: "desktop:list-windows"; requestId: string }
+  | {
+      type: "contexts:add-desktop-window";
+      contextId: string;
+      candidate: DesktopWindowCandidate;
+    }
+  | {
+      type: "contexts:remove-desktop-window";
+      contextId: string;
+      desktopWindowId: string;
+    }
   | { type: "contexts:shelve"; contextId: string }
   | { type: "contexts:restore"; contextId: string }
   | { type: "contexts:set-pinned"; contextId: string; pinned: boolean }
@@ -34,5 +48,6 @@ export type ManagerResponse =
       organizationTargetId?: string;
       canUndoWindowMove?: boolean;
       desktopStatus?: DesktopCompanionStatus;
+      desktopCandidates?: DesktopWindowCandidate[];
     }
   | { ok: false; error: string };
