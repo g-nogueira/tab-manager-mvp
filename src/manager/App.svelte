@@ -3,9 +3,13 @@
   import type {
     BrowserContext,
     ContextWindow,
+    DesktopWindowReference,
     TabSnapshot
   } from "../domain/context";
-  import type { DesktopCompanionStatus } from "../domain/desktop";
+  import type {
+    DesktopCompanionStatus,
+    DesktopWindowCandidate
+  } from "../domain/desktop";
   import type { ManagerRequest, ManagerResponse } from "../domain/messages";
   import {
     createDiagnosticRequestId,
@@ -32,6 +36,10 @@
   let showAllShelved = false;
   let currentBrowserWindowId: number | undefined;
   let desktopStatus: DesktopCompanionStatus | undefined;
+  let desktopPickerContextId: string | undefined;
+  let desktopCandidates: DesktopWindowCandidate[] = [];
+  let desktopCandidatesLoading = false;
+  let desktopCandidatesError = "";
 
   async function send(request: ManagerRequest): Promise<ManagerResponse> {
     return chrome.runtime.sendMessage(request) as Promise<ManagerResponse>;
@@ -380,6 +388,51 @@
     );
   }
 
+  function desktopWindowMatches(
+    window: DesktopWindowReference,
+    searchTerm: string
+  ): boolean {
+    if (!searchTerm) return true;
+
+    return (
+      window.displayName.toLowerCase().includes(searchTerm) ||
+      window.applicationName.toLowerCase().includes(searchTerm) ||
+      window.matcher.processName.toLowerCase().includes(searchTerm) ||
+      window.matcher.titleHint.toLowerCase().includes(searchTerm)
+    );
+  }
+
+  function visibleDesktopWindows(
+    context: BrowserContext,
+    searchTerm: string
+  ): DesktopWindowReference[] {
+    if (!searchTerm || contextNameMatches(context, searchTerm)) {
+      return context.desktopWindows;
+    }
+
+    return context.desktopWindows.filter((window) =>
+      desktopWindowMatches(window, searchTerm)
+    );
+  }
+
+  function candidateAlreadyAdded(
+    context: BrowserContext,
+    candidate: DesktopWindowCandidate
+  ): boolean {
+    return context.desktopWindows.some((window) => {
+      const leftPath = window.matcher.executablePath?.toLowerCase();
+      const rightPath = candidate.matcher.executablePath?.toLowerCase();
+
+      return (
+        window.matcher.processName.toLowerCase() ===
+          candidate.matcher.processName.toLowerCase() &&
+        (leftPath && rightPath ? leftPath === rightPath : true) &&
+        window.matcher.titleHint.toLowerCase() ===
+          candidate.matcher.titleHint.toLowerCase()
+      );
+    });
+  }
+
   function contextMatches(
     context: BrowserContext,
     searchTerm: string
@@ -388,10 +441,15 @@
 
     if (contextNameMatches(context, searchTerm)) return true;
 
-    return context.windows.some(
-      (window) =>
-        windowNameMatches(context, window, searchTerm) ||
-        window.tabs.some((tab) => tabMatches(tab, searchTerm))
+    return (
+      context.windows.some(
+        (window) =>
+          windowNameMatches(context, window, searchTerm) ||
+          window.tabs.some((tab) => tabMatches(tab, searchTerm))
+      ) ||
+      context.desktopWindows.some((window) =>
+        desktopWindowMatches(window, searchTerm)
+      )
     );
   }
 
@@ -571,6 +629,102 @@
   function dismissToast(): void {
     toastMessage = "";
     toastUndoKind = undefined;
+  }
+
+  async function openDesktopWindowPicker(
+    context: BrowserContext
+  ): Promise<void> {
+    closeMenus();
+
+    if (
+      !desktopStatus?.available ||
+      !desktopStatus.healthy ||
+      !desktopStatus.canEnumerateDesktopWindows
+    ) {
+      error =
+        desktopStatus?.reason ??
+        "Desktop window discovery requires the native companion.";
+      return;
+    }
+
+    desktopPickerContextId = context.id;
+    desktopCandidates = [];
+    desktopCandidatesError = "";
+    desktopCandidatesLoading = true;
+
+    const requestId = createDiagnosticRequestId();
+
+    diagnosticInfo("popup", "desktop-windows:list-start", {
+      requestId,
+      contextId: context.id
+    });
+
+    try {
+      const response = await send({
+        type: "desktop:list-windows",
+        requestId
+      });
+
+      if (!response.ok) {
+        desktopCandidatesError = response.error;
+        return;
+      }
+
+      desktopCandidates = (response.desktopCandidates ?? []).filter(
+        (candidate) => !candidateAlreadyAdded(context, candidate)
+      );
+
+      diagnosticInfo("popup", "desktop-windows:list-applied", {
+        requestId,
+        contextId: context.id,
+        count: desktopCandidates.length
+      });
+    } catch (cause) {
+      desktopCandidatesError =
+        cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      desktopCandidatesLoading = false;
+    }
+  }
+
+  function closeDesktopWindowPicker(): void {
+    desktopPickerContextId = undefined;
+    desktopCandidates = [];
+    desktopCandidatesError = "";
+    desktopCandidatesLoading = false;
+  }
+
+  async function addDesktopWindow(
+    context: BrowserContext,
+    candidate: DesktopWindowCandidate
+  ): Promise<void> {
+    const success = await run({
+      type: "contexts:add-desktop-window",
+      contextId: context.id,
+      candidate
+    });
+
+    if (!success) return;
+
+    desktopCandidates = desktopCandidates.filter(
+      (item) =>
+        item.processName !== candidate.processName ||
+        item.title !== candidate.title
+    );
+
+    toastMessage = `Added ${candidate.applicationName}: ${candidate.title}.`;
+    toastUndoKind = undefined;
+  }
+
+  async function removeDesktopWindow(
+    contextId: string,
+    desktopWindowId: string
+  ): Promise<void> {
+    await run({
+      type: "contexts:remove-desktop-window",
+      contextId,
+      desktopWindowId
+    });
   }
 
   async function switchToContext(contextId: string): Promise<void> {
