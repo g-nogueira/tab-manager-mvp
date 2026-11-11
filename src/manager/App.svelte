@@ -1129,12 +1129,88 @@
               </div>
             {/if}
 
+            <div class="desktop-members">
+              <div class="desktop-members-heading">
+                <span>
+                  Desktop windows
+                  {#if context.desktopWindows.length > 0}
+                    <small>{context.desktopWindows.length}</small>
+                  {/if}
+                </span>
+                <button
+                  class="desktop-add"
+                  title="Add a desktop application window to this context"
+                  disabled={
+                    !desktopStatus?.available ||
+                    !desktopStatus.healthy ||
+                    !desktopStatus.canEnumerateDesktopWindows
+                  }
+                  on:click={() =>
+                    desktopPickerContextId === context.id
+                      ? closeDesktopWindowPicker()
+                      : openDesktopWindowPicker(context)}
+                >
+                  {desktopPickerContextId === context.id ? "Close" : "+ Add"}
+                </button>
+              </div>
+
+              {#if visibleDesktopWindows(context, searchTerm).length > 0}
+                <div class="desktop-member-list">
+                  {#each visibleDesktopWindows(context, searchTerm) as desktopWindow (desktopWindow.id)}
+                    <div class="desktop-member">
+                      <div class="desktop-member-text">
+                        <strong>{desktopWindow.applicationName}</strong>
+                        <span title={desktopWindow.displayName}>
+                          {desktopWindow.displayName}
+                        </span>
+                      </div>
+                      <button
+                        class="desktop-remove"
+                        title="Remove desktop window from context"
+                        aria-label={`Remove ${desktopWindow.displayName} from context`}
+                        on:click={() =>
+                          removeDesktopWindow(context.id, desktopWindow.id)}
+                      >×</button>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+
+              {#if desktopPickerContextId === context.id}
+                <div class="desktop-picker">
+                  {#if desktopCandidatesLoading}
+                    <div class="desktop-picker-message">Scanning desktop windows…</div>
+                  {:else if desktopCandidatesError}
+                    <div class="desktop-picker-error">{desktopCandidatesError}</div>
+                  {:else if desktopCandidates.length === 0}
+                    <div class="desktop-picker-message">
+                      No additional eligible desktop windows found.
+                    </div>
+                  {:else}
+                    {#each desktopCandidates as candidate}
+                      <button
+                        class="desktop-candidate"
+                        title={candidate.title}
+                        on:click={() => addDesktopWindow(context, candidate)}
+                      >
+                        <strong>{candidate.applicationName}</strong>
+                        <span>{candidate.title}</span>
+                      </button>
+                    {/each}
+                  {/if}
+                </div>
+              {/if}
+            </div>
+
             <footer>
               <span>
                 {#if context.windows.length > 1}
                   {context.windows.length} windows · {allTabs(context).length} tabs
                 {:else}
                   {allTabs(context).length} {allTabs(context).length === 1 ? "tab" : "tabs"}
+                {/if}
+                {#if context.desktopWindows.length > 0}
+                  · {context.desktopWindows.length} desktop
                 {/if}
               </span>
               <div class="footer-actions">
@@ -1216,12 +1292,88 @@
               </div>
             {/each}
 
+            <div class="desktop-members">
+              <div class="desktop-members-heading">
+                <span>
+                  Desktop windows
+                  {#if context.desktopWindows.length > 0}
+                    <small>{context.desktopWindows.length}</small>
+                  {/if}
+                </span>
+                <button
+                  class="desktop-add"
+                  title="Add a desktop application window to this context"
+                  disabled={
+                    !desktopStatus?.available ||
+                    !desktopStatus.healthy ||
+                    !desktopStatus.canEnumerateDesktopWindows
+                  }
+                  on:click={() =>
+                    desktopPickerContextId === context.id
+                      ? closeDesktopWindowPicker()
+                      : openDesktopWindowPicker(context)}
+                >
+                  {desktopPickerContextId === context.id ? "Close" : "+ Add"}
+                </button>
+              </div>
+
+              {#if visibleDesktopWindows(context, searchTerm).length > 0}
+                <div class="desktop-member-list">
+                  {#each visibleDesktopWindows(context, searchTerm) as desktopWindow (desktopWindow.id)}
+                    <div class="desktop-member">
+                      <div class="desktop-member-text">
+                        <strong>{desktopWindow.applicationName}</strong>
+                        <span title={desktopWindow.displayName}>
+                          {desktopWindow.displayName}
+                        </span>
+                      </div>
+                      <button
+                        class="desktop-remove"
+                        title="Remove desktop window from context"
+                        aria-label={`Remove ${desktopWindow.displayName} from context`}
+                        on:click={() =>
+                          removeDesktopWindow(context.id, desktopWindow.id)}
+                      >×</button>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+
+              {#if desktopPickerContextId === context.id}
+                <div class="desktop-picker">
+                  {#if desktopCandidatesLoading}
+                    <div class="desktop-picker-message">Scanning desktop windows…</div>
+                  {:else if desktopCandidatesError}
+                    <div class="desktop-picker-error">{desktopCandidatesError}</div>
+                  {:else if desktopCandidates.length === 0}
+                    <div class="desktop-picker-message">
+                      No additional eligible desktop windows found.
+                    </div>
+                  {:else}
+                    {#each desktopCandidates as candidate}
+                      <button
+                        class="desktop-candidate"
+                        title={candidate.title}
+                        on:click={() => addDesktopWindow(context, candidate)}
+                      >
+                        <strong>{candidate.applicationName}</strong>
+                        <span>{candidate.title}</span>
+                      </button>
+                    {/each}
+                  {/if}
+                </div>
+              {/if}
+            </div>
+
             <footer>
               <span>
                 {#if context.windows.length > 1}
                   {context.windows.length} windows · {allTabs(context).length} tabs
                 {:else}
                   {allTabs(context).length} {allTabs(context).length === 1 ? "tab" : "tabs"}
+                {/if}
+                {#if context.desktopWindows.length > 0}
+                  · {context.desktopWindows.length} desktop
                 {/if}
               </span>
               <div class="footer-actions">
@@ -1757,6 +1909,162 @@
     place-items: center;
     border: 1px solid #4c646a;
     border-radius: 4px;
+  }
+
+  .desktop-members {
+    margin-top: 10px;
+    padding-top: 9px;
+    border-top: 1px solid #24383e;
+  }
+
+  .desktop-members-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: #91a6aa;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .desktop-members-heading span {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .desktop-members-heading small {
+    color: #71878c;
+    font-size: 9px;
+    font-weight: 600;
+  }
+
+  .desktop-add,
+  .desktop-remove {
+    border: 0;
+    background: transparent;
+    color: #7ed0d6;
+    cursor: pointer;
+  }
+
+  .desktop-add {
+    padding: 3px 5px;
+    font-size: 10px;
+    text-transform: none;
+  }
+
+  .desktop-add:disabled {
+    color: #687b80;
+    cursor: default;
+  }
+
+  .desktop-member-list {
+    display: grid;
+    gap: 4px;
+    margin-top: 6px;
+  }
+
+  .desktop-member {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding: 5px 7px;
+    border: 1px solid #263d44;
+    border-radius: 6px;
+    background: #142227;
+  }
+
+  .desktop-member-text {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    align-items: baseline;
+    gap: 7px;
+  }
+
+  .desktop-member-text strong {
+    flex: 0 0 auto;
+    font-size: 10px;
+  }
+
+  .desktop-member-text span {
+    min-width: 0;
+    overflow: hidden;
+    color: #91a4a9;
+    font-size: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .desktop-remove {
+    width: 22px;
+    height: 22px;
+    flex: 0 0 22px;
+    border-radius: 4px;
+    color: #879b9f;
+  }
+
+  .desktop-remove:hover {
+    background: #2a4148;
+    color: #f0b8b8;
+  }
+
+  .desktop-picker {
+    display: grid;
+    gap: 4px;
+    max-height: 190px;
+    margin-top: 7px;
+    padding: 5px;
+    overflow-y: auto;
+    border: 1px solid #365159;
+    border-radius: 7px;
+    background: #101b1f;
+  }
+
+  .desktop-candidate {
+    display: flex;
+    min-width: 0;
+    align-items: baseline;
+    gap: 7px;
+    padding: 6px 7px;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: #c8d5d8;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .desktop-candidate:hover {
+    background: #21363c;
+  }
+
+  .desktop-candidate strong {
+    flex: 0 0 auto;
+    font-size: 10px;
+  }
+
+  .desktop-candidate span {
+    min-width: 0;
+    overflow: hidden;
+    color: #91a4a9;
+    font-size: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .desktop-picker-message,
+  .desktop-picker-error {
+    padding: 7px;
+    color: #87999d;
+    font-size: 10px;
+  }
+
+  .desktop-picker-error {
+    color: #e0a5a5;
   }
 
   footer {
