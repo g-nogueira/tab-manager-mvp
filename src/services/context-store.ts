@@ -53,6 +53,7 @@ function migrateLegacyContext(legacy: LegacyBrowserContext): BrowserContext {
         lastFocusedAt: legacy.lastFocusedAt
       }
     ],
+    desktopWindows: [],
     pinned: false,
     shelvedAt:
       legacy.state === "shelved" || legacy.windowId === undefined
@@ -71,6 +72,7 @@ function normalizeContext(context: BrowserContext): BrowserContext {
 
   return {
     ...context,
+    desktopWindows: context.desktopWindows ?? [],
     pinned: context.pinned ?? false,
     shelvedAt:
       context.shelvedAt ?? (allShelved ? context.updatedAt : undefined),
