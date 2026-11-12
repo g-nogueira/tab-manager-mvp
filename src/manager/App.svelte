@@ -569,7 +569,15 @@
     });
 
     if (success) {
-      toastMessage = `Added "${sourceWindowName}" to ${targetName}.`;
+      const desktopTransferCount =
+        sourceContext.windows.length === 1
+          ? sourceContext.desktopWindows.length
+          : 0;
+
+      toastMessage =
+        desktopTransferCount > 0
+          ? `Added "${sourceWindowName}" and ${desktopTransferCount} desktop ${desktopTransferCount === 1 ? "window" : "windows"} to ${targetName}.`
+          : `Added "${sourceWindowName}" to ${targetName}.`;
       toastUndoKind = "window-move";
     }
   }
@@ -1434,8 +1442,10 @@
   }
 
   :global(body) {
+    width: 440px;
+    max-width: 100vw;
     margin: 0;
-    min-width: 760px;
+    min-width: 420px;
     min-height: 560px;
     font-family:
       Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
@@ -1586,7 +1596,7 @@
 
   .grid {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
     gap: 10px;
   }
 
@@ -2069,6 +2079,7 @@
 
   footer {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
@@ -2081,7 +2092,9 @@
 
   .footer-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 5px;
+    margin-left: auto;
   }
 
   footer button {
