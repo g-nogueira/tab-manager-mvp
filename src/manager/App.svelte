@@ -3,9 +3,13 @@
   import type {
     BrowserContext,
     ContextWindow,
+    DesktopWindowReference,
     TabSnapshot
   } from "../domain/context";
-  import type { DesktopCompanionStatus } from "../domain/desktop";
+  import type {
+    DesktopCompanionStatus,
+    DesktopWindowCandidate
+  } from "../domain/desktop";
   import type { ManagerRequest, ManagerResponse } from "../domain/messages";
   import {
     createDiagnosticRequestId,
@@ -32,6 +36,10 @@
   let showAllShelved = false;
   let currentBrowserWindowId: number | undefined;
   let desktopStatus: DesktopCompanionStatus | undefined;
+  let desktopPickerContextId: string | undefined;
+  let desktopCandidates: DesktopWindowCandidate[] = [];
+  let desktopCandidatesLoading = false;
+  let desktopCandidatesError = "";
 
   async function send(request: ManagerRequest): Promise<ManagerResponse> {
     return chrome.runtime.sendMessage(request) as Promise<ManagerResponse>;
@@ -380,6 +388,51 @@
     );
   }
 
+  function desktopWindowMatches(
+    window: DesktopWindowReference,
+    searchTerm: string
+  ): boolean {
+    if (!searchTerm) return true;
+
+    return (
+      window.displayName.toLowerCase().includes(searchTerm) ||
+      window.applicationName.toLowerCase().includes(searchTerm) ||
+      window.matcher.processName.toLowerCase().includes(searchTerm) ||
+      window.matcher.titleHint.toLowerCase().includes(searchTerm)
+    );
+  }
+
+  function visibleDesktopWindows(
+    context: BrowserContext,
+    searchTerm: string
+  ): DesktopWindowReference[] {
+    if (!searchTerm || contextNameMatches(context, searchTerm)) {
+      return context.desktopWindows;
+    }
+
+    return context.desktopWindows.filter((window) =>
+      desktopWindowMatches(window, searchTerm)
+    );
+  }
+
+  function candidateAlreadyAdded(
+    context: BrowserContext,
+    candidate: DesktopWindowCandidate
+  ): boolean {
+    return context.desktopWindows.some((window) => {
+      const leftPath = window.matcher.executablePath?.toLowerCase();
+      const rightPath = candidate.matcher.executablePath?.toLowerCase();
+
+      return (
+        window.matcher.processName.toLowerCase() ===
+          candidate.matcher.processName.toLowerCase() &&
+        (leftPath && rightPath ? leftPath === rightPath : true) &&
+        window.matcher.titleHint.toLowerCase() ===
+          candidate.matcher.titleHint.toLowerCase()
+      );
+    });
+  }
+
   function contextMatches(
     context: BrowserContext,
     searchTerm: string
@@ -388,10 +441,15 @@
 
     if (contextNameMatches(context, searchTerm)) return true;
 
-    return context.windows.some(
-      (window) =>
-        windowNameMatches(context, window, searchTerm) ||
-        window.tabs.some((tab) => tabMatches(tab, searchTerm))
+    return (
+      context.windows.some(
+        (window) =>
+          windowNameMatches(context, window, searchTerm) ||
+          window.tabs.some((tab) => tabMatches(tab, searchTerm))
+      ) ||
+      context.desktopWindows.some((window) =>
+        desktopWindowMatches(window, searchTerm)
+      )
     );
   }
 
@@ -511,7 +569,15 @@
     });
 
     if (success) {
-      toastMessage = `Added "${sourceWindowName}" to ${targetName}.`;
+      const desktopTransferCount =
+        sourceContext.windows.length === 1
+          ? sourceContext.desktopWindows.length
+          : 0;
+
+      toastMessage =
+        desktopTransferCount > 0
+          ? `Added "${sourceWindowName}" and ${desktopTransferCount} desktop ${desktopTransferCount === 1 ? "window" : "windows"} to ${targetName}.`
+          : `Added "${sourceWindowName}" to ${targetName}.`;
       toastUndoKind = "window-move";
     }
   }
@@ -571,6 +637,102 @@
   function dismissToast(): void {
     toastMessage = "";
     toastUndoKind = undefined;
+  }
+
+  async function openDesktopWindowPicker(
+    context: BrowserContext
+  ): Promise<void> {
+    closeMenus();
+
+    if (
+      !desktopStatus?.available ||
+      !desktopStatus.healthy ||
+      !desktopStatus.canEnumerateDesktopWindows
+    ) {
+      error =
+        desktopStatus?.reason ??
+        "Desktop window discovery requires the native companion.";
+      return;
+    }
+
+    desktopPickerContextId = context.id;
+    desktopCandidates = [];
+    desktopCandidatesError = "";
+    desktopCandidatesLoading = true;
+
+    const requestId = createDiagnosticRequestId();
+
+    diagnosticInfo("popup", "desktop-windows:list-start", {
+      requestId,
+      contextId: context.id
+    });
+
+    try {
+      const response = await send({
+        type: "desktop:list-windows",
+        requestId
+      });
+
+      if (!response.ok) {
+        desktopCandidatesError = response.error;
+        return;
+      }
+
+      desktopCandidates = (response.desktopCandidates ?? []).filter(
+        (candidate) => !candidateAlreadyAdded(context, candidate)
+      );
+
+      diagnosticInfo("popup", "desktop-windows:list-applied", {
+        requestId,
+        contextId: context.id,
+        count: desktopCandidates.length
+      });
+    } catch (cause) {
+      desktopCandidatesError =
+        cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      desktopCandidatesLoading = false;
+    }
+  }
+
+  function closeDesktopWindowPicker(): void {
+    desktopPickerContextId = undefined;
+    desktopCandidates = [];
+    desktopCandidatesError = "";
+    desktopCandidatesLoading = false;
+  }
+
+  async function addDesktopWindow(
+    context: BrowserContext,
+    candidate: DesktopWindowCandidate
+  ): Promise<void> {
+    const success = await run({
+      type: "contexts:add-desktop-window",
+      contextId: context.id,
+      candidate
+    });
+
+    if (!success) return;
+
+    desktopCandidates = desktopCandidates.filter(
+      (item) =>
+        item.processName !== candidate.processName ||
+        item.title !== candidate.title
+    );
+
+    toastMessage = `Added ${candidate.applicationName}: ${candidate.title}.`;
+    toastUndoKind = undefined;
+  }
+
+  async function removeDesktopWindow(
+    contextId: string,
+    desktopWindowId: string
+  ): Promise<void> {
+    await run({
+      type: "contexts:remove-desktop-window",
+      contextId,
+      desktopWindowId
+    });
   }
 
   async function switchToContext(contextId: string): Promise<void> {
@@ -975,12 +1137,88 @@
               </div>
             {/if}
 
+            <div class="desktop-members">
+              <div class="desktop-members-heading">
+                <span>
+                  Desktop windows
+                  {#if context.desktopWindows.length > 0}
+                    <small>{context.desktopWindows.length}</small>
+                  {/if}
+                </span>
+                <button
+                  class="desktop-add"
+                  title="Add a desktop application window to this context"
+                  disabled={
+                    !desktopStatus?.available ||
+                    !desktopStatus.healthy ||
+                    !desktopStatus.canEnumerateDesktopWindows
+                  }
+                  on:click={() =>
+                    desktopPickerContextId === context.id
+                      ? closeDesktopWindowPicker()
+                      : openDesktopWindowPicker(context)}
+                >
+                  {desktopPickerContextId === context.id ? "Close" : "+ Add"}
+                </button>
+              </div>
+
+              {#if visibleDesktopWindows(context, searchTerm).length > 0}
+                <div class="desktop-member-list">
+                  {#each visibleDesktopWindows(context, searchTerm) as desktopWindow (desktopWindow.id)}
+                    <div class="desktop-member">
+                      <div class="desktop-member-text">
+                        <strong>{desktopWindow.applicationName}</strong>
+                        <span title={desktopWindow.displayName}>
+                          {desktopWindow.displayName}
+                        </span>
+                      </div>
+                      <button
+                        class="desktop-remove"
+                        title="Remove desktop window from context"
+                        aria-label={`Remove ${desktopWindow.displayName} from context`}
+                        on:click={() =>
+                          removeDesktopWindow(context.id, desktopWindow.id)}
+                      >×</button>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+
+              {#if desktopPickerContextId === context.id}
+                <div class="desktop-picker">
+                  {#if desktopCandidatesLoading}
+                    <div class="desktop-picker-message">Scanning desktop windows…</div>
+                  {:else if desktopCandidatesError}
+                    <div class="desktop-picker-error">{desktopCandidatesError}</div>
+                  {:else if desktopCandidates.length === 0}
+                    <div class="desktop-picker-message">
+                      No additional eligible desktop windows found.
+                    </div>
+                  {:else}
+                    {#each desktopCandidates as candidate}
+                      <button
+                        class="desktop-candidate"
+                        title={candidate.title}
+                        on:click={() => addDesktopWindow(context, candidate)}
+                      >
+                        <strong>{candidate.applicationName}</strong>
+                        <span>{candidate.title}</span>
+                      </button>
+                    {/each}
+                  {/if}
+                </div>
+              {/if}
+            </div>
+
             <footer>
               <span>
                 {#if context.windows.length > 1}
                   {context.windows.length} windows · {allTabs(context).length} tabs
                 {:else}
                   {allTabs(context).length} {allTabs(context).length === 1 ? "tab" : "tabs"}
+                {/if}
+                {#if context.desktopWindows.length > 0}
+                  · {context.desktopWindows.length} desktop
                 {/if}
               </span>
               <div class="footer-actions">
@@ -1062,12 +1300,88 @@
               </div>
             {/each}
 
+            <div class="desktop-members">
+              <div class="desktop-members-heading">
+                <span>
+                  Desktop windows
+                  {#if context.desktopWindows.length > 0}
+                    <small>{context.desktopWindows.length}</small>
+                  {/if}
+                </span>
+                <button
+                  class="desktop-add"
+                  title="Add a desktop application window to this context"
+                  disabled={
+                    !desktopStatus?.available ||
+                    !desktopStatus.healthy ||
+                    !desktopStatus.canEnumerateDesktopWindows
+                  }
+                  on:click={() =>
+                    desktopPickerContextId === context.id
+                      ? closeDesktopWindowPicker()
+                      : openDesktopWindowPicker(context)}
+                >
+                  {desktopPickerContextId === context.id ? "Close" : "+ Add"}
+                </button>
+              </div>
+
+              {#if visibleDesktopWindows(context, searchTerm).length > 0}
+                <div class="desktop-member-list">
+                  {#each visibleDesktopWindows(context, searchTerm) as desktopWindow (desktopWindow.id)}
+                    <div class="desktop-member">
+                      <div class="desktop-member-text">
+                        <strong>{desktopWindow.applicationName}</strong>
+                        <span title={desktopWindow.displayName}>
+                          {desktopWindow.displayName}
+                        </span>
+                      </div>
+                      <button
+                        class="desktop-remove"
+                        title="Remove desktop window from context"
+                        aria-label={`Remove ${desktopWindow.displayName} from context`}
+                        on:click={() =>
+                          removeDesktopWindow(context.id, desktopWindow.id)}
+                      >×</button>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+
+              {#if desktopPickerContextId === context.id}
+                <div class="desktop-picker">
+                  {#if desktopCandidatesLoading}
+                    <div class="desktop-picker-message">Scanning desktop windows…</div>
+                  {:else if desktopCandidatesError}
+                    <div class="desktop-picker-error">{desktopCandidatesError}</div>
+                  {:else if desktopCandidates.length === 0}
+                    <div class="desktop-picker-message">
+                      No additional eligible desktop windows found.
+                    </div>
+                  {:else}
+                    {#each desktopCandidates as candidate}
+                      <button
+                        class="desktop-candidate"
+                        title={candidate.title}
+                        on:click={() => addDesktopWindow(context, candidate)}
+                      >
+                        <strong>{candidate.applicationName}</strong>
+                        <span>{candidate.title}</span>
+                      </button>
+                    {/each}
+                  {/if}
+                </div>
+              {/if}
+            </div>
+
             <footer>
               <span>
                 {#if context.windows.length > 1}
                   {context.windows.length} windows · {allTabs(context).length} tabs
                 {:else}
                   {allTabs(context).length} {allTabs(context).length === 1 ? "tab" : "tabs"}
+                {/if}
+                {#if context.desktopWindows.length > 0}
+                  · {context.desktopWindows.length} desktop
                 {/if}
               </span>
               <div class="footer-actions">
@@ -1123,14 +1437,20 @@
   }
 
   :global(html) {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
     color-scheme: dark;
     background: #10181b;
   }
 
   :global(body) {
+    width: 420px;
+    max-width: 100%;
     margin: 0;
-    min-width: 760px;
+    min-width: 0;
     min-height: 560px;
+    overflow-x: hidden;
     font-family:
       Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
       sans-serif;
@@ -1149,8 +1469,11 @@
 
   main {
     width: 100%;
+    min-width: 0;
+    max-width: 100%;
     min-height: 560px;
     padding: 18px;
+    overflow-x: hidden;
   }
 
   header {
@@ -1263,6 +1586,8 @@
   }
 
   section {
+    min-width: 0;
+    max-width: 100%;
     margin-top: 18px;
   }
 
@@ -1280,14 +1605,20 @@
 
   .grid {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    grid-template-columns: minmax(0, 1fr);
     gap: 10px;
   }
 
   .card {
     position: relative;
+    width: 100%;
     min-width: 0;
+    max-width: 100%;
     padding: 12px;
+    overflow: hidden;
     border: 1px solid #24383e;
     border-radius: 10px;
     background: #18272c;
@@ -1324,6 +1655,9 @@
 
   .card-heading {
     display: flex;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
     align-items: center;
     min-height: 30px;
     gap: 3px;
@@ -1460,12 +1794,20 @@
 
   .windows {
     display: grid;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    grid-template-columns: minmax(0, 1fr);
     gap: 9px;
     margin-top: 8px;
   }
 
   .window-block {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
     padding: 8px;
+    overflow: hidden;
     border: 1px solid #263d44;
     border-radius: 8px;
     background: #142227;
@@ -1473,6 +1815,9 @@
 
   .window-heading {
     display: flex;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
@@ -1483,10 +1828,13 @@
   }
 
   .window-title {
-    min-width: 0;
     display: flex;
+    min-width: 0;
+    max-width: 100%;
+    flex: 1;
     align-items: baseline;
     gap: 7px;
+    overflow: hidden;
   }
 
   .window-title strong {
@@ -1505,6 +1853,10 @@
 
   .tabs {
     display: grid;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    grid-template-columns: minmax(0, 1fr);
     gap: 5px;
     margin-top: 9px;
   }
@@ -1515,9 +1867,12 @@
 
   .tab-row {
     display: flex;
-    align-items: center;
+    width: 100%;
     min-width: 0;
+    max-width: 100%;
+    align-items: center;
     border-radius: 6px;
+    overflow: hidden;
   }
 
   .tab-row:hover,
@@ -1540,7 +1895,8 @@
   }
 
   .tab-main {
-    flex: 1;
+    min-width: 0;
+    flex: 1 1 auto;
   }
 
   .tab-close {
@@ -1605,8 +1961,171 @@
     border-radius: 4px;
   }
 
+  .desktop-members {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    margin-top: 10px;
+    padding-top: 9px;
+    border-top: 1px solid #24383e;
+  }
+
+  .desktop-members-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: #91a6aa;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .desktop-members-heading span {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .desktop-members-heading small {
+    color: #71878c;
+    font-size: 9px;
+    font-weight: 600;
+  }
+
+  .desktop-add,
+  .desktop-remove {
+    border: 0;
+    background: transparent;
+    color: #7ed0d6;
+    cursor: pointer;
+  }
+
+  .desktop-add {
+    padding: 3px 5px;
+    font-size: 10px;
+    text-transform: none;
+  }
+
+  .desktop-add:disabled {
+    color: #687b80;
+    cursor: default;
+  }
+
+  .desktop-member-list {
+    display: grid;
+    gap: 4px;
+    margin-top: 6px;
+  }
+
+  .desktop-member {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding: 5px 7px;
+    border: 1px solid #263d44;
+    border-radius: 6px;
+    background: #142227;
+  }
+
+  .desktop-member-text {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    align-items: baseline;
+    gap: 7px;
+  }
+
+  .desktop-member-text strong {
+    flex: 0 0 auto;
+    font-size: 10px;
+  }
+
+  .desktop-member-text span {
+    min-width: 0;
+    overflow: hidden;
+    color: #91a4a9;
+    font-size: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .desktop-remove {
+    width: 22px;
+    height: 22px;
+    flex: 0 0 22px;
+    border-radius: 4px;
+    color: #879b9f;
+  }
+
+  .desktop-remove:hover {
+    background: #2a4148;
+    color: #f0b8b8;
+  }
+
+  .desktop-picker {
+    display: grid;
+    gap: 4px;
+    max-height: 190px;
+    margin-top: 7px;
+    padding: 5px;
+    overflow-y: auto;
+    border: 1px solid #365159;
+    border-radius: 7px;
+    background: #101b1f;
+  }
+
+  .desktop-candidate {
+    display: flex;
+    min-width: 0;
+    align-items: baseline;
+    gap: 7px;
+    padding: 6px 7px;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: #c8d5d8;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .desktop-candidate:hover {
+    background: #21363c;
+  }
+
+  .desktop-candidate strong {
+    flex: 0 0 auto;
+    font-size: 10px;
+  }
+
+  .desktop-candidate span {
+    min-width: 0;
+    overflow: hidden;
+    color: #91a4a9;
+    font-size: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .desktop-picker-message,
+  .desktop-picker-error {
+    padding: 7px;
+    color: #87999d;
+    font-size: 10px;
+  }
+
+  .desktop-picker-error {
+    color: #e0a5a5;
+  }
+
   footer {
     display: flex;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
@@ -1619,7 +2138,9 @@
 
   .footer-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 5px;
+    margin-left: auto;
   }
 
   footer button {

@@ -247,3 +247,43 @@ Get-Content "$env:LOCALAPPDATA\ContextTabManager\NativeHost\logs\native-host.log
 ```
 
 The same request ID should appear in the background-process console and native log. If the background process logs `send:dispatched` but the ID never appears in the native log, the browser did not launch/reach the registered host. If the ID reaches the native log and a response is logged but the extension times out, the failure is on the browser return path.
+
+
+## Desktop windows in contexts
+
+Contexts can also include specific non-browser application windows, such as a VS Code workspace, Kiro window, Rider project or terminal.
+
+The native companion enumerates eligible live desktop windows and the popup exposes them through **Desktop windows → + Add** on each context card.
+
+Desktop membership persists semantic identity rather than HWND/PID:
+
+- process/application identity;
+- executable path when available;
+- the observed window title as a matching hint.
+
+On **Focus**, the companion resolves saved desktop members, restores matched members that are currently minimized, minimizes unrelated desktop windows, and then the extension restores the target browser context.
+
+Saved desktop members remain in the context when their application/window is closed. Missing members are simply unresolved during Focus; this version does not launch applications automatically.
+
+Architecture and decision record:
+
+- [Desktop windows in contexts](docs/architecture/desktop-context-windows.md)
+- [ADR 0005 — semantic desktop-window identity](docs/adr/0005-semantic-desktop-window-identity.md)
+
+This feature requires the protocol-v2 native companion. After pulling the feature branch, reinstall the Windows companion before testing:
+
+```powershell
+# Firefox
+./native/ContextTabManager.NativeHost/install-windows.ps1 -Browser Firefox
+
+# Chrome
+./native/ContextTabManager.NativeHost/install-windows.ps1 `
+  -Browser Chrome `
+  -ChromeExtensionId <chrome-extension-id>
+```
+
+Native logs include Focus matching counts:
+
+```text
+Focus considered=..., minimized=..., matched=..., restored=..., unresolved=...
+```

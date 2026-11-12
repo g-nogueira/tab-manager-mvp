@@ -28,6 +28,16 @@ function newId(): string {
   return crypto.randomUUID();
 }
 
+function desktopWindowIdentityKey(
+  window: BrowserContext["desktopWindows"][number]
+): string {
+  return [
+    window.matcher.processName.toLowerCase(),
+    window.matcher.executablePath?.toLowerCase() ?? "",
+    window.matcher.titleHint.toLowerCase()
+  ].join("\u0000");
+}
+
 function isOwnExtensionUrl(url?: string): boolean {
   return Boolean(url && url.startsWith(ownExtensionPrefix));
 }
@@ -211,6 +221,7 @@ function contextFromWindow(window: chrome.windows.Window): BrowserContext {
   return {
     id: newId(),
     windows: [contextWindow],
+    desktopWindows: [],
     pinned: false,
     createdAt: timestamp,
     updatedAt: timestamp,
@@ -817,6 +828,7 @@ export async function createContextFromWindow(
   const newContext: BrowserContext = {
     id: newId(),
     windows: [contextWindow],
+    desktopWindows: [],
     pinned: false,
     shelvedAt:
       contextWindow.state === "shelved" || contextWindow.windowId === undefined
@@ -921,6 +933,22 @@ export async function addWindowToContext(
     target.windows[0].name = target.name;
   }
 
+  const transferDesktopWindows =
+    source.windows.length === 1 &&
+    source.desktopWindows.length > 0;
+
+  const sourceDesktopWindows = transferDesktopWindows
+    ? [...source.desktopWindows]
+    : [];
+
+  const existingTargetDesktopKeys = new Set(
+    target.desktopWindows.map(desktopWindowIdentityKey)
+  );
+
+  const desktopWindowsAddedToTarget = sourceDesktopWindows.filter(
+    (window) => !existingTargetDesktopKeys.has(desktopWindowIdentityKey(window))
+  );
+
   const undo: UndoWindowMove = {
     sourceContextId: source.id,
     sourceContextName: source.name,
@@ -928,11 +956,23 @@ export async function addWindowToContext(
     sourceContextLastFocusedAt: source.lastFocusedAt,
     sourceWindowIndex: windowIndex,
     contextWindowId: contextWindow.id,
-    targetContextId: target.id
+    targetContextId: target.id,
+    sourceDesktopWindows: sourceDesktopWindows.length > 0
+      ? sourceDesktopWindows
+      : undefined,
+    desktopWindowIdsAddedToTarget:
+      desktopWindowsAddedToTarget.length > 0
+        ? desktopWindowsAddedToTarget.map((window) => window.id)
+        : undefined
   };
 
   source.windows.splice(windowIndex, 1);
   target.windows.push(contextWindow);
+
+  if (transferDesktopWindows) {
+    source.desktopWindows = [];
+    target.desktopWindows.push(...desktopWindowsAddedToTarget);
+  }
 
   const timestamp = now();
   source.updatedAt = timestamp;
@@ -954,7 +994,10 @@ export async function addWindowToContext(
     };
   }
 
-  if (source.windows.length === 0) {
+  if (
+    source.windows.length === 0 &&
+    source.desktopWindows.length === 0
+  ) {
     contexts.splice(sourceIndex, 1);
   }
 
@@ -1039,7 +1082,10 @@ export async function inheritDetachedTabWindow(
     contextWindowId: sourceContextWindow.id
   };
 
-  if (destinationContext.windows.length === 0) {
+  if (
+    destinationContext.windows.length === 0 &&
+    destinationContext.desktopWindows.length === 0
+  ) {
     contexts.splice(destinationContextIndex, 1);
   } else {
     destinationContext.updatedAt = now();
@@ -1073,6 +1119,7 @@ export async function undoLastWindowMove(): Promise<void> {
       id: undo.sourceContextId,
       name: undo.sourceContextName,
       windows: [],
+      desktopWindows: [...(undo.sourceDesktopWindows ?? [])],
       pinned: false,
       createdAt: undo.sourceContextCreatedAt,
       updatedAt: now(),
@@ -1086,6 +1133,28 @@ export async function undoLastWindowMove(): Promise<void> {
     0,
     contextWindow
   );
+
+  if (undo.sourceDesktopWindows?.length) {
+    const sourceDesktopIds = new Set(
+      source.desktopWindows.map((window) => window.id)
+    );
+
+    source.desktopWindows.push(
+      ...undo.sourceDesktopWindows.filter(
+        (window) => !sourceDesktopIds.has(window.id)
+      )
+    );
+  }
+
+  if (undo.desktopWindowIdsAddedToTarget?.length) {
+    const transferredIds = new Set(
+      undo.desktopWindowIdsAddedToTarget
+    );
+
+    target.desktopWindows = target.desktopWindows.filter(
+      (window) => !transferredIds.has(window.id)
+    );
+  }
 
   const undoTimestamp = now();
   source.updatedAt = undoTimestamp;
@@ -1107,7 +1176,10 @@ export async function undoLastWindowMove(): Promise<void> {
     };
   }
 
-  if (target.windows.length === 0) {
+  if (
+    target.windows.length === 0 &&
+    target.desktopWindows.length === 0
+  ) {
     const targetIndex = contexts.findIndex((context) => context.id === target.id);
     if (targetIndex >= 0) {
       contexts.splice(targetIndex, 1);
@@ -1118,7 +1190,11 @@ export async function undoLastWindowMove(): Promise<void> {
   await saveBindings(bindings);
 
   const organizationTargetId = await loadOrganizationTargetId();
-  if (organizationTargetId === target.id && target.windows.length === 0) {
+  if (
+    organizationTargetId === target.id &&
+    target.windows.length === 0 &&
+    target.desktopWindows.length === 0
+  ) {
     await saveOrganizationTargetId(source.id);
   }
 
