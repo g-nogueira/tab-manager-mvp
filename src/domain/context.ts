@@ -74,6 +74,8 @@ export interface UndoWindowMove {
   sourceWindowIndex: number;
   contextWindowId: string;
   targetContextId: string;
+  sourceDesktopWindows?: DesktopWindowReference[];
+  desktopWindowIdsAddedToTarget?: string[];
 }
 
 
