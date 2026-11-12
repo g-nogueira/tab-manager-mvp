@@ -28,6 +28,16 @@ function newId(): string {
   return crypto.randomUUID();
 }
 
+function desktopWindowIdentityKey(
+  window: BrowserContext["desktopWindows"][number]
+): string {
+  return [
+    window.matcher.processName.toLowerCase(),
+    window.matcher.executablePath?.toLowerCase() ?? "",
+    window.matcher.titleHint.toLowerCase()
+  ].join("\u0000");
+}
+
 function isOwnExtensionUrl(url?: string): boolean {
   return Boolean(url && url.startsWith(ownExtensionPrefix));
 }
@@ -923,6 +933,22 @@ export async function addWindowToContext(
     target.windows[0].name = target.name;
   }
 
+  const transferDesktopWindows =
+    source.windows.length === 1 &&
+    source.desktopWindows.length > 0;
+
+  const sourceDesktopWindows = transferDesktopWindows
+    ? [...source.desktopWindows]
+    : [];
+
+  const existingTargetDesktopKeys = new Set(
+    target.desktopWindows.map(desktopWindowIdentityKey)
+  );
+
+  const desktopWindowsAddedToTarget = sourceDesktopWindows.filter(
+    (window) => !existingTargetDesktopKeys.has(desktopWindowIdentityKey(window))
+  );
+
   const undo: UndoWindowMove = {
     sourceContextId: source.id,
     sourceContextName: source.name,
@@ -930,11 +956,23 @@ export async function addWindowToContext(
     sourceContextLastFocusedAt: source.lastFocusedAt,
     sourceWindowIndex: windowIndex,
     contextWindowId: contextWindow.id,
-    targetContextId: target.id
+    targetContextId: target.id,
+    sourceDesktopWindows: sourceDesktopWindows.length > 0
+      ? sourceDesktopWindows
+      : undefined,
+    desktopWindowIdsAddedToTarget:
+      desktopWindowsAddedToTarget.length > 0
+        ? desktopWindowsAddedToTarget.map((window) => window.id)
+        : undefined
   };
 
   source.windows.splice(windowIndex, 1);
   target.windows.push(contextWindow);
+
+  if (transferDesktopWindows) {
+    source.desktopWindows = [];
+    target.desktopWindows.push(...desktopWindowsAddedToTarget);
+  }
 
   const timestamp = now();
   source.updatedAt = timestamp;
@@ -1081,7 +1119,7 @@ export async function undoLastWindowMove(): Promise<void> {
       id: undo.sourceContextId,
       name: undo.sourceContextName,
       windows: [],
-      desktopWindows: [],
+      desktopWindows: [...(undo.sourceDesktopWindows ?? [])],
       pinned: false,
       createdAt: undo.sourceContextCreatedAt,
       updatedAt: now(),
@@ -1095,6 +1133,28 @@ export async function undoLastWindowMove(): Promise<void> {
     0,
     contextWindow
   );
+
+  if (undo.sourceDesktopWindows?.length) {
+    const sourceDesktopIds = new Set(
+      source.desktopWindows.map((window) => window.id)
+    );
+
+    source.desktopWindows.push(
+      ...undo.sourceDesktopWindows.filter(
+        (window) => !sourceDesktopIds.has(window.id)
+      )
+    );
+  }
+
+  if (undo.desktopWindowIdsAddedToTarget?.length) {
+    const transferredIds = new Set(
+      undo.desktopWindowIdsAddedToTarget
+    );
+
+    target.desktopWindows = target.desktopWindows.filter(
+      (window) => !transferredIds.has(window.id)
+    );
+  }
 
   const undoTimestamp = now();
   source.updatedAt = undoTimestamp;
