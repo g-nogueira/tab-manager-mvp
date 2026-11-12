@@ -1437,16 +1437,20 @@
   }
 
   :global(html) {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
     color-scheme: dark;
     background: #10181b;
   }
 
   :global(body) {
-    width: 440px;
-    max-width: 100vw;
+    width: 420px;
+    max-width: 100%;
     margin: 0;
-    min-width: 420px;
+    min-width: 0;
     min-height: 560px;
+    overflow-x: hidden;
     font-family:
       Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
       sans-serif;
@@ -1465,8 +1469,11 @@
 
   main {
     width: 100%;
+    min-width: 0;
+    max-width: 100%;
     min-height: 560px;
     padding: 18px;
+    overflow-x: hidden;
   }
 
   header {
@@ -1579,6 +1586,8 @@
   }
 
   section {
+    min-width: 0;
+    max-width: 100%;
     margin-top: 18px;
   }
 
@@ -1596,14 +1605,20 @@
 
   .grid {
     display: grid;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
     grid-template-columns: minmax(0, 1fr);
     gap: 10px;
   }
 
   .card {
     position: relative;
+    width: 100%;
     min-width: 0;
+    max-width: 100%;
     padding: 12px;
+    overflow: hidden;
     border: 1px solid #24383e;
     border-radius: 10px;
     background: #18272c;
@@ -1640,6 +1655,9 @@
 
   .card-heading {
     display: flex;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
     align-items: center;
     min-height: 30px;
     gap: 3px;
@@ -1776,12 +1794,20 @@
 
   .windows {
     display: grid;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    grid-template-columns: minmax(0, 1fr);
     gap: 9px;
     margin-top: 8px;
   }
 
   .window-block {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
     padding: 8px;
+    overflow: hidden;
     border: 1px solid #263d44;
     border-radius: 8px;
     background: #142227;
@@ -1789,6 +1815,9 @@
 
   .window-heading {
     display: flex;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
@@ -1799,10 +1828,13 @@
   }
 
   .window-title {
-    min-width: 0;
     display: flex;
+    min-width: 0;
+    max-width: 100%;
+    flex: 1;
     align-items: baseline;
     gap: 7px;
+    overflow: hidden;
   }
 
   .window-title strong {
@@ -1821,6 +1853,10 @@
 
   .tabs {
     display: grid;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    grid-template-columns: minmax(0, 1fr);
     gap: 5px;
     margin-top: 9px;
   }
@@ -1831,9 +1867,12 @@
 
   .tab-row {
     display: flex;
-    align-items: center;
+    width: 100%;
     min-width: 0;
+    max-width: 100%;
+    align-items: center;
     border-radius: 6px;
+    overflow: hidden;
   }
 
   .tab-row:hover,
@@ -1856,7 +1895,8 @@
   }
 
   .tab-main {
-    flex: 1;
+    min-width: 0;
+    flex: 1 1 auto;
   }
 
   .tab-close {
@@ -1922,6 +1962,9 @@
   }
 
   .desktop-members {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
     margin-top: 10px;
     padding-top: 9px;
     border-top: 1px solid #24383e;
@@ -2079,6 +2122,9 @@
 
   footer {
     display: flex;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
     flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
