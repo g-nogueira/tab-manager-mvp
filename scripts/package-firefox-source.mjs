@@ -33,7 +33,9 @@ const ignoredDirtyPaths = [
   "artifacts/",
   "dist/",
   "dist-firefox/",
-  "node_modules/"
+  "node_modules/",
+  "dist.crx",
+  "dist.pem"
 ];
 
 const relevantDirtyEntries = status.stdout
