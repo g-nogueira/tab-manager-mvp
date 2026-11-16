@@ -15,6 +15,29 @@ const sourceArchive = join(
 
 mkdirSync(artifactsDir, { recursive: true });
 
+const status = spawnSync(
+  "git",
+  ["status", "--porcelain"],
+  {
+    cwd: root,
+    encoding: "utf8"
+  }
+);
+
+if (status.status !== 0) {
+  process.exit(status.status ?? 1);
+}
+
+if (status.stdout.trim().length > 0) {
+  console.error(
+    [
+      "Refusing to create a Firefox signing source archive from a dirty working tree.",
+      "Commit or stash your changes so the uploaded source matches the signed extension."
+    ].join("\n")
+  );
+  process.exit(2);
+}
+
 const result = spawnSync(
   "git",
   [
