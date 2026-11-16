@@ -20,9 +20,15 @@ public sealed class DesktopCommandDispatcher(IDesktopService desktopService)
                 request.RequestId,
                 capabilities: desktopService.GetCapabilities()),
 
+            "listDesktopWindows" => await ListDesktopWindowsAsync(
+                request.Command,
+                request.RequestId,
+                cancellationToken),
+
             "prepareDesktopForFocus" => await PrepareDesktopForFocusAsync(
                 request.Command,
                 request.RequestId,
+                request.Matchers ?? [],
                 cancellationToken),
 
             _ => NativeResponse.Failure(
@@ -44,14 +50,40 @@ public sealed class DesktopCommandDispatcher(IDesktopService desktopService)
 
         return new DesktopCompanionStatus(
             version,
-            ProtocolVersion: 1,
+            ProtocolVersion: 2,
             capabilities.Platform,
-            capabilities.CanPrepareDesktopForFocus);
+            capabilities.CanPrepareDesktopForFocus,
+            capabilities.CanEnumerateDesktopWindows);
+    }
+
+    private async Task<NativeResponse> ListDesktopWindowsAsync(
+        string command,
+        string? requestId,
+        CancellationToken cancellationToken)
+    {
+        var capabilities = desktopService.GetCapabilities();
+
+        if (!capabilities.CanEnumerateDesktopWindows)
+        {
+            return NativeResponse.Failure(
+                command,
+                $"Desktop window discovery is not supported on {capabilities.Platform}.",
+                requestId);
+        }
+
+        var windows = await desktopService.GetWindowCandidatesAsync(
+            cancellationToken);
+
+        return NativeResponse.Success(
+            command,
+            requestId,
+            result: new ListDesktopWindowsResult(windows));
     }
 
     private async Task<NativeResponse> PrepareDesktopForFocusAsync(
         string command,
         string? requestId,
+        IReadOnlyList<DesktopWindowMatcher> matchers,
         CancellationToken cancellationToken)
     {
         var capabilities = desktopService.GetCapabilities();
@@ -65,6 +97,7 @@ public sealed class DesktopCommandDispatcher(IDesktopService desktopService)
         }
 
         var result = await desktopService.PrepareForFocusAsync(
+            matchers,
             cancellationToken);
 
         return NativeResponse.Success(

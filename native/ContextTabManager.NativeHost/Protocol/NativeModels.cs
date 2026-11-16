@@ -1,8 +1,11 @@
+using ContextTabManager.NativeHost.Application;
+
 namespace ContextTabManager.NativeHost.Protocol;
 
 public sealed record NativeCommandRequest(
     string Command,
-    string? RequestId = null);
+    string? RequestId = null,
+    IReadOnlyList<DesktopWindowMatcher>? Matchers = null);
 
 public sealed record NativeResponse(
     bool Ok,

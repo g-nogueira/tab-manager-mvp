@@ -53,6 +53,7 @@ function migrateLegacyContext(legacy: LegacyBrowserContext): BrowserContext {
         lastFocusedAt: legacy.lastFocusedAt
       }
     ],
+    desktopWindows: [],
     pinned: false,
     shelvedAt:
       legacy.state === "shelved" || legacy.windowId === undefined
@@ -71,6 +72,7 @@ function normalizeContext(context: BrowserContext): BrowserContext {
 
   return {
     ...context,
+    desktopWindows: context.desktopWindows ?? [],
     pinned: context.pinned ?? false,
     shelvedAt:
       context.shelvedAt ?? (allShelved ? context.updatedAt : undefined),
@@ -89,7 +91,13 @@ export async function loadContexts(): Promise<BrowserContext[]> {
 
   let migrated = false;
   const contexts = raw.map((item) => {
-    if (isBrowserContext(item)) return normalizeContext(item);
+    if (isBrowserContext(item)) {
+      if (!Array.isArray(item.desktopWindows)) {
+        migrated = true;
+      }
+
+      return normalizeContext(item);
+    }
 
     migrated = true;
     return migrateLegacyContext(item as LegacyBrowserContext);
@@ -180,9 +188,16 @@ export async function loadUndoContextRemoval(): Promise<UndoContextRemoval | und
   const result = await chrome.storage.session.get(UNDO_CONTEXT_REMOVAL_KEY);
   const value = result[UNDO_CONTEXT_REMOVAL_KEY];
 
-  return value && typeof value === "object"
-    ? (value as UndoContextRemoval)
-    : undefined;
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const removal = value as UndoContextRemoval;
+
+  return {
+    ...removal,
+    context: normalizeContext(removal.context)
+  };
 }
 
 export async function saveUndoContextRemoval(

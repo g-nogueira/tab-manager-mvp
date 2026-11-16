@@ -6,3 +6,7 @@ dist-firefox/
 
 **/bin/
 **/obj/
+
+artifacts/
+dist.crx
+dist.pem

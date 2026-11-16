@@ -39,6 +39,7 @@ function isDisposableShelvedContext(context: BrowserContext): boolean {
   if (contextIsActive(context)) return false;
   if (context.pinned) return false;
   if (context.name?.trim()) return false;
+  if (context.desktopWindows.length > 0) return false;
   if (context.windows.length !== 1) return false;
 
   const tabs = context.windows[0].tabs;

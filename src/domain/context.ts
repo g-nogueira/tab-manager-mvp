@@ -31,10 +31,25 @@ export interface ContextWindow {
   lastFocusedAt?: number;
 }
 
+export interface DesktopWindowMatcher {
+  processName: string;
+  executablePath?: string;
+  titleHint: string;
+}
+
+export interface DesktopWindowReference {
+  id: string;
+  displayName: string;
+  applicationName: string;
+  matcher: DesktopWindowMatcher;
+  createdAt: number;
+}
+
 export interface BrowserContext {
   id: string;
   name?: string;
   windows: ContextWindow[];
+  desktopWindows: DesktopWindowReference[];
   pinned: boolean;
   shelvedAt?: number;
   createdAt: number;
@@ -59,6 +74,8 @@ export interface UndoWindowMove {
   sourceWindowIndex: number;
   contextWindowId: string;
   targetContextId: string;
+  sourceDesktopWindows?: DesktopWindowReference[];
+  desktopWindowIdsAddedToTarget?: string[];
 }
 
 

@@ -51,6 +51,19 @@ while (true)
         NativeHostDiagnostics.Info(
             $"Command '{request.Command}' completed with ok={response.Ok}.",
             request.RequestId);
+
+        if (response.Result is PrepareDesktopForFocusResult focusResult)
+        {
+            NativeHostDiagnostics.Info(
+                $"Focus considered={focusResult.WindowsConsidered}, minimized={focusResult.WindowsMinimized}, matched={focusResult.DesktopWindowsMatched}, restored={focusResult.DesktopWindowsRestored}, unresolved={focusResult.DesktopMatchersUnresolved}.",
+                request.RequestId);
+        }
+        else if (response.Result is ListDesktopWindowsResult listResult)
+        {
+            NativeHostDiagnostics.Info(
+                $"Desktop window discovery returned {listResult.Windows.Count} candidate(s).",
+                request.RequestId);
+        }
     }
     catch (Exception exception)
     {

@@ -5,8 +5,13 @@ import {
 } from "../services/diagnostics";
 import {
   getDesktopCompanionStatus,
+  listDesktopWindows,
   prepareDesktopForFocus
 } from "../services/desktop-companion-client";
+import {
+  addDesktopWindowToContext,
+  removeDesktopWindowFromContext
+} from "../services/desktop-context-membership";
 import {
   cleanupShelvedContexts,
   removeShelvedContext,
@@ -283,6 +288,42 @@ chrome.runtime.onMessage.addListener(
       return true;
     }
 
+    if (request.type === "desktop:list-windows") {
+      const { requestId } = request;
+
+      diagnosticInfo("background", "desktop-windows:list-received", {
+        requestId
+      });
+
+      void listDesktopWindows(requestId)
+        .then((desktopCandidates) => {
+          diagnosticInfo("background", "desktop-windows:list-completed", {
+            requestId,
+            count: desktopCandidates.length
+          });
+
+          sendResponse({
+            ok: true,
+            desktopCandidates
+          } satisfies ManagerResponse);
+        })
+        .catch((error) => {
+          diagnosticError(
+            "background",
+            "desktop-windows:list-failed",
+            error,
+            { requestId }
+          );
+
+          sendResponse({
+            ok: false,
+            error: error instanceof Error ? error.message : String(error)
+          } satisfies ManagerResponse);
+        });
+
+      return true;
+    }
+
     void enqueue(async () => {
       try {
         await ensureBootstrapped();
@@ -301,13 +342,25 @@ chrome.runtime.onMessage.addListener(
 
           case "contexts:focus": {
             const requestId = request.requestId;
+            const contexts = await loadContexts();
+            const context = contexts.find(
+              (item) => item.id === request.contextId
+            );
+
+            if (!context) {
+              throw new Error("Context not found");
+            }
 
             diagnosticInfo("background", "desktop-focus:received", {
               requestId,
-              contextId: request.contextId
+              contextId: request.contextId,
+              desktopWindowCount: context.desktopWindows.length
             });
 
-            await prepareDesktopForFocus(requestId);
+            await prepareDesktopForFocus(
+              context.desktopWindows.map((window) => window.matcher),
+              requestId
+            );
             await switchContext(request.contextId);
 
             diagnosticInfo("background", "desktop-focus:completed", {
@@ -316,6 +369,20 @@ chrome.runtime.onMessage.addListener(
             });
             break;
           }
+
+          case "contexts:add-desktop-window":
+            await addDesktopWindowToContext(
+              request.contextId,
+              request.candidate
+            );
+            break;
+
+          case "contexts:remove-desktop-window":
+            await removeDesktopWindowFromContext(
+              request.contextId,
+              request.desktopWindowId
+            );
+            break;
 
           case "contexts:shelve":
             await shelveContext(request.contextId);

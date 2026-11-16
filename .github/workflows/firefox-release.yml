@@ -1,0 +1,58 @@
+name: Firefox Signed Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sign:
+    runs-on: ubuntu-latest
+    env:
+      WEB_EXT_API_KEY: ${{ secrets.WEB_EXT_API_KEY }}
+      WEB_EXT_API_SECRET: ${{ secrets.WEB_EXT_API_SECRET }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Validate AMO credentials are configured
+        shell: bash
+        run: |
+          if [ -z "$WEB_EXT_API_KEY" ] || [ -z "$WEB_EXT_API_SECRET" ]; then
+            echo "::error::Configure WEB_EXT_API_KEY and WEB_EXT_API_SECRET as repository secrets before running this workflow."
+            exit 1
+          fi
+
+      - name: Type and Svelte checks
+        run: npm run check
+
+      - name: Build Firefox extension
+        run: npm run build:firefox
+
+      - name: Lint Firefox extension
+        run: npm run lint:firefox
+
+      - name: Package Firefox source
+        run: npm run package:firefox:source
+
+      - name: Sign unlisted Firefox extension
+        run: node scripts/sign-firefox.mjs
+
+      - name: Upload signed Firefox release
+        uses: actions/upload-artifact@v4
+        with:
+          name: firefox-signed-release
+          path: |
+            artifacts/firefox/*.xpi
+            artifacts/firefox/*-source.zip
+          if-no-files-found: error

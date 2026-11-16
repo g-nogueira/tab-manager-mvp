@@ -1,4 +1,8 @@
-import type { DesktopCompanionStatus } from "../domain/desktop";
+import type { DesktopWindowMatcher } from "../domain/context";
+import type {
+  DesktopCompanionStatus,
+  DesktopWindowCandidate
+} from "../domain/desktop";
 import {
   createDiagnosticRequestId,
   diagnosticError,
@@ -13,6 +17,11 @@ interface NativeHostStatus {
   protocolVersion: number;
   platform: string;
   canPrepareDesktopForFocus: boolean;
+  canEnumerateDesktopWindows?: boolean;
+}
+
+interface NativeHostListWindowsResult {
+  windows: DesktopWindowCandidate[];
 }
 
 interface NativeHostResponse {
@@ -20,12 +29,14 @@ interface NativeHostResponse {
   command: string;
   requestId?: string;
   status?: NativeHostStatus;
+  result?: NativeHostListWindowsResult | Record<string, unknown>;
   error?: string;
 }
 
 async function sendNative(
   command: string,
   requestId = createDiagnosticRequestId(),
+  payload: Record<string, unknown> = {},
   timeoutMs = 5000
 ): Promise<NativeHostResponse> {
   const startedAt = performance.now();
@@ -62,7 +73,7 @@ async function sendNative(
   try {
     const nativeRequest = chrome.runtime.sendNativeMessage(
       NATIVE_HOST_NAME,
-      { command, requestId }
+      { command, requestId, ...payload }
     ) as Promise<NativeHostResponse>;
 
     diagnosticInfo("native-client", "send:dispatched", {
@@ -153,7 +164,9 @@ export async function getDesktopCompanionStatus(
       hostVersion: response.status.hostVersion,
       protocolVersion: response.status.protocolVersion,
       canPrepareDesktopForFocus:
-        response.status.canPrepareDesktopForFocus
+        response.status.canPrepareDesktopForFocus,
+      canEnumerateDesktopWindows:
+        response.status.canEnumerateDesktopWindows
     };
   } catch (error) {
     diagnosticError("native-client", "status:unavailable", error, {
@@ -172,7 +185,26 @@ export async function getDesktopCompanionStatus(
   }
 }
 
+export async function listDesktopWindows(
+  requestId = createDiagnosticRequestId()
+): Promise<DesktopWindowCandidate[]> {
+  const response = await sendNative(
+    "listDesktopWindows",
+    requestId
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      response.error ?? "Desktop companion could not enumerate windows"
+    );
+  }
+
+  const result = response.result as NativeHostListWindowsResult | undefined;
+  return result?.windows ?? [];
+}
+
 export async function prepareDesktopForFocus(
+  matchers: DesktopWindowMatcher[],
   requestId = createDiagnosticRequestId()
 ): Promise<void> {
   let response: NativeHostResponse;
@@ -180,7 +212,11 @@ export async function prepareDesktopForFocus(
   diagnosticInfo("native-client", "focus:start", { requestId });
 
   try {
-    response = await sendNative("prepareDesktopForFocus", requestId);
+    response = await sendNative(
+      "prepareDesktopForFocus",
+      requestId,
+      { matchers }
+    );
   } catch (error) {
     const reason =
       error instanceof Error ? error.message : "Desktop companion is unavailable";
