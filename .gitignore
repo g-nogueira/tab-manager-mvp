@@ -8,3 +8,5 @@ dist-firefox/
 **/obj/
 
 artifacts/
+dist.crx
+dist.pem
