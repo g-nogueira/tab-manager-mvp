@@ -111,6 +111,8 @@ The signing command:
 
 The API credentials are read from environment variables and are never written to repository files or command arguments.
 
+Alternatively, configure `WEB_EXT_API_KEY` and `WEB_EXT_API_SECRET` as GitHub repository secrets and manually run the **Firefox Signed Release** workflow. It uploads the signed XPI and matching source archive as a private workflow artifact.
+
 Install the resulting signed `.xpi` through Firefox's normal **Install Add-on From File…** flow. Unlike an `about:debugging` temporary add-on, the signed installation persists across Firefox restarts.
 
 Before signing a new release, increment the version in `manifests/firefox.json` (and keep the browser manifests aligned). Mozilla does not accept uploading the same add-on version twice.
