@@ -62,6 +62,60 @@ After changes, rebuild the relevant target and explicitly reload the extension i
 
 The Firefox build uses the stable add-on ID `context-tab-manager@g-nogueira.local`. Browser extension storage is local to each browser, so existing Chrome contexts do not automatically appear in Firefox.
 
+### Package and permanently install Firefox
+
+Create an unsigned review/test package:
+
+```bash
+npm run package:firefox
+```
+
+Output:
+
+```text
+artifacts/firefox/context-tab-manager-<version>.zip
+```
+
+Create the matching human-readable source archive:
+
+```bash
+npm run package:firefox:source
+```
+
+The source command requires a clean Git working tree so the submitted source corresponds to the signed build.
+
+For a normal Firefox installation that survives browser restarts, sign an **unlisted** build through Mozilla AMO.
+
+1. Create/sign in to a Firefox Add-ons Developer account.
+2. Create AMO API credentials.
+3. Set the credentials only in your shell environment:
+
+```powershell
+$env:WEB_EXT_API_KEY = "<JWT issuer>"
+$env:WEB_EXT_API_SECRET = "<JWT secret>"
+```
+
+4. Sign:
+
+```powershell
+npm run sign:firefox
+```
+
+The signing command:
+
+- rebuilds `dist-firefox/`;
+- creates a source-code archive from the current clean Git commit;
+- submits the add-on as `channel=unlisted`;
+- uploads the source archive for review;
+- downloads Mozilla's signed XPI into `artifacts/firefox/`.
+
+The API credentials are read from environment variables and are never written to repository files or command arguments.
+
+Install the resulting signed `.xpi` through Firefox's normal **Install Add-on From File…** flow. Unlike an `about:debugging` temporary add-on, the signed installation persists across Firefox restarts.
+
+Before signing a new release, increment the version in `manifests/firefox.json` (and keep the browser manifests aligned). Mozilla does not accept uploading the same add-on version twice.
+
+
 ## Multi-window test pass
 
 1. Reload the extension with existing MVP data and verify current context names survive.
