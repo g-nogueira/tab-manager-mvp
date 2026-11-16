@@ -1618,7 +1618,6 @@
     min-width: 0;
     max-width: 100%;
     padding: 12px;
-    overflow: hidden;
     border: 1px solid #24383e;
     border-radius: 10px;
     background: #18272c;
@@ -1803,11 +1802,11 @@
   }
 
   .window-block {
+    position: relative;
     width: 100%;
     min-width: 0;
     max-width: 100%;
     padding: 8px;
-    overflow: hidden;
     border: 1px solid #263d44;
     border-radius: 8px;
     background: #142227;
