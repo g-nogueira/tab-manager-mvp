@@ -105,3 +105,29 @@ This proves packaging remains reproducible without exposing signing secrets.
 Never commit AMO API credentials.
 
 Recommended local usage is environment variables scoped to the current shell. If signing is automated later, credentials should be stored in GitHub Actions secrets or an equivalent secret store and only exposed to a protected release workflow.
+
+
+## GitHub Actions signing
+
+A manual workflow is available:
+
+`.github/workflows/firefox-release.yml`
+
+Configure these repository secrets:
+
+- `WEB_EXT_API_KEY`
+- `WEB_EXT_API_SECRET`
+
+Then run **Firefox Signed Release** from the repository Actions page.
+
+The workflow validates the extension, creates the matching source archive, signs an unlisted build through Mozilla, and uploads:
+
+```text
+firefox-signed-release
+├── *.xpi
+└── *-source.zip
+```
+
+as a private GitHub Actions artifact.
+
+The signing workflow is manual by design so ordinary pushes and pull requests never submit versions to AMO. Remember to increment the Firefox manifest version before each run.
