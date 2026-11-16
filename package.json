@@ -10,7 +10,10 @@
     "build:chrome": "vite build --mode chrome",
     "build:firefox": "vite build --mode firefox",
     "build:all": "npm run build:chrome && npm run build:firefox",
-    "lint:firefox": "npx --yes web-ext@10.8.0 lint --source-dir dist-firefox"
+    "lint:firefox": "npx --yes web-ext@10.8.0 lint --source-dir dist-firefox",
+    "package:firefox": "npm run build:firefox && node scripts/package-firefox.mjs",
+    "package:firefox:source": "node scripts/package-firefox-source.mjs",
+    "sign:firefox": "npm run build:firefox && npm run package:firefox:source && node scripts/sign-firefox.mjs"
   },
   "dependencies": {
     "svelte": "^5.38.0"
