@@ -6,3 +6,5 @@ dist-firefox/
 
 **/bin/
 **/obj/
+
+artifacts/
