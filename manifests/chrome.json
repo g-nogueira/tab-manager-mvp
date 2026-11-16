@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Context Tab Manager",
-  "description": "Organize Chrome windows as persistent named contexts.",
+  "description": "Organize browser windows as persistent named contexts.",
   "version": "0.2.0",
   "permissions": [
     "tabs",

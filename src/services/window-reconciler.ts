@@ -47,7 +47,7 @@ function snapshotTabs(tabs: chrome.tabs.Tab[] = []): TabSnapshot[] {
     .sort((a, b) => a.index - b.index);
 }
 
-function preferredStateFromChrome(
+function preferredStateFromBrowser(
   state: chrome.windows.Window["state"] | undefined,
   fallback: RestorableWindowState = "normal"
 ): RestorableWindowState {
@@ -59,7 +59,7 @@ function preferredStateFromChrome(
   return fallback;
 }
 
-function normalBoundsFromChrome(
+function normalBoundsFromBrowser(
   window: chrome.windows.Window
 ): WindowBounds | undefined {
   if (
@@ -84,18 +84,18 @@ function captureWindowLayout(
   contextWindow: ContextWindow,
   window: chrome.windows.Window
 ): void {
-  contextWindow.preferredState = preferredStateFromChrome(
+  contextWindow.preferredState = preferredStateFromBrowser(
     window.state,
     contextWindow.preferredState
   );
 
-  const bounds = normalBoundsFromChrome(window);
+  const bounds = normalBoundsFromBrowser(window);
   if (bounds) {
     contextWindow.normalBounds = bounds;
   }
 }
 
-function waitForChrome(milliseconds: number): Promise<void> {
+function waitForBrowser(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
@@ -122,7 +122,7 @@ async function restoreWindowLayout(
     return;
   }
 
-  // On Windows, asking Chrome to restore a minimized window while explicitly
+  // On Windows, asking the browser to restore a minimized window while explicitly
   // keeping it unfocused can leave it minimized. If it is minimized, briefly
   // activate it to force the OS-level restore. The context's last-used window
   // is focused again after all context windows have been restored.
@@ -131,7 +131,7 @@ async function restoreWindowLayout(
     ...(current.state === "minimized" ? { focused: true } : {})
   });
 
-  // Chrome only accepts explicit bounds reliably while a window is normal.
+  // The browser only accepts explicit bounds reliably while a window is normal.
   if (contextWindow.normalBounds) {
     await chrome.windows.update(contextWindow.windowId, {
       left: contextWindow.normalBounds.left,
@@ -163,9 +163,9 @@ async function ensureWindowVisible(
     await restoreWindowLayout(contextWindow);
 
     // Window state changes are asynchronous at the OS/window-manager boundary.
-    // Give Chrome a short opportunity to commit the requested state before
+    // Give the browser a short opportunity to commit the requested state before
     // verifying the postcondition.
-    await waitForChrome(40);
+    await waitForBrowser(40);
 
     let current: chrome.windows.Window;
 
@@ -196,8 +196,8 @@ function contextWindowFromWindow(window: chrome.windows.Window): ContextWindow {
     state: "active",
     windowId: window.id,
     tabs: snapshotTabs(window.tabs),
-    preferredState: preferredStateFromChrome(window.state),
-    normalBounds: normalBoundsFromChrome(window),
+    preferredState: preferredStateFromBrowser(window.state),
+    normalBounds: normalBoundsFromBrowser(window),
     createdAt: timestamp,
     updatedAt: timestamp,
     lastFocusedAt: window.focused ? timestamp : undefined
@@ -509,7 +509,7 @@ export async function renameContext(contextId: string, name: string): Promise<vo
   await saveOrganizationTargetId(context.id);
 }
 
-async function createChromeWindowFromSnapshot(
+async function createBrowserWindowFromSnapshot(
   context: BrowserContext,
   contextWindow: ContextWindow,
   bindings: WindowBindings,
@@ -539,7 +539,7 @@ async function createChromeWindowFromSnapshot(
   const created = await chrome.windows.create(createData);
 
   if (!created || created.id === undefined) {
-    throw new Error("Chrome did not return a window id");
+    throw new Error("Browser did not return a window id");
   }
 
   contextWindow.state = "active";
@@ -590,7 +590,7 @@ async function restoreMissingWindows(
       continue;
     }
 
-    await createChromeWindowFromSnapshot(context, contextWindow, bindings, false);
+    await createBrowserWindowFromSnapshot(context, contextWindow, bindings, false);
   }
 
   context.updatedAt = now();
@@ -620,11 +620,11 @@ export async function switchContext(contextId: string): Promise<void> {
 
   await restoreMissingWindows(target, bindings);
 
-  const chromeWindows = await chrome.windows.getAll({
+  const browserWindows = await chrome.windows.getAll({
     windowTypes: ["normal"]
   });
 
-  for (const window of chromeWindows) {
+  for (const window of browserWindows) {
     if (window.id === undefined) continue;
 
     const binding = bindings[String(window.id)];
@@ -774,7 +774,7 @@ export async function restoreContext(contextId: string): Promise<void> {
   await saveBindings(bindings);
 }
 
-export async function createContextFromChromeWindow(
+export async function createContextFromBrowserWindow(
   windowId: number
 ): Promise<void> {
   await syncWindow(windowId);
@@ -783,7 +783,7 @@ export async function createContextFromChromeWindow(
   const binding = bindings[String(windowId)];
 
   if (!binding) {
-    throw new Error("Chrome window is not registered");
+    throw new Error("Browser window is not registered");
   }
 
   await createContextFromWindow(
@@ -858,7 +858,7 @@ export async function createContextFromWindow(
   await saveUndoWindowMove(undo);
 }
 
-export async function addChromeWindowToContext(
+export async function addBrowserWindowToContext(
   windowId: number,
   targetContextId: string
 ): Promise<void> {
@@ -868,7 +868,7 @@ export async function addChromeWindowToContext(
   const binding = bindings[String(windowId)];
 
   if (!binding) {
-    throw new Error("Chrome window is not registered");
+    throw new Error("Browser window is not registered");
   }
 
   await addWindowToContext(

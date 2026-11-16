@@ -5,8 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "check": "svelte-check --tsconfig ./tsconfig.json"
+    "build": "npm run build:chrome",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "build:chrome": "vite build --mode chrome",
+    "build:firefox": "vite build --mode firefox",
+    "build:all": "npm run build:chrome && npm run build:firefox",
+    "lint:firefox": "npx --yes web-ext@10.8.0 lint --source-dir dist-firefox"
   },
   "dependencies": {
     "svelte": "^5.38.0"

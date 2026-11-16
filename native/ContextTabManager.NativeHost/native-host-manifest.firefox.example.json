@@ -1,0 +1,9 @@
+{
+  "name": "com.gnogueira.context_tab_manager",
+  "description": "Context Tab Manager desktop companion",
+  "path": "C:\\absolute\\path\\to\\ContextTabManager.NativeHost.exe",
+  "type": "stdio",
+  "allowed_extensions": [
+    "context-tab-manager@g-nogueira.local"
+  ]
+}

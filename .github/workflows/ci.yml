@@ -29,8 +29,14 @@ jobs:
       - name: Type and Svelte checks
         run: npm run check
 
-      - name: Build extension
-        run: npm run build
+      - name: Build Chrome extension
+        run: npm run build:chrome
+
+      - name: Build Firefox extension
+        run: npm run build:firefox
+
+      - name: Lint Firefox extension
+        run: npm run lint:firefox
 
       - name: Build native companion
         run: dotnet build native/ContextTabManager.NativeHost/ContextTabManager.NativeHost.csproj --configuration Release
