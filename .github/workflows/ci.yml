@@ -38,5 +38,18 @@ jobs:
       - name: Lint Firefox extension
         run: npm run lint:firefox
 
+      - name: Package Firefox extension
+        run: node scripts/package-firefox.mjs
+
+      - name: Package Firefox source
+        run: node scripts/package-firefox-source.mjs
+
+      - name: Upload Firefox packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: firefox-packages
+          path: artifacts/firefox/
+          if-no-files-found: error
+
       - name: Build native companion
         run: dotnet build native/ContextTabManager.NativeHost/ContextTabManager.NativeHost.csproj --configuration Release
