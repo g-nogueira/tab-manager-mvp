@@ -28,11 +28,34 @@ if (status.status !== 0) {
   process.exit(status.status ?? 1);
 }
 
-if (status.stdout.trim().length > 0) {
+const ignoredDirtyPaths = [
+  "package-lock.json",
+  "artifacts/",
+  "dist/",
+  "dist-firefox/",
+  "node_modules/"
+];
+
+const relevantDirtyEntries = status.stdout
+  .split(/\r?\n/)
+  .map((line) => line.trimEnd())
+  .filter(Boolean)
+  .filter((line) => {
+    const path = line.slice(3).replace(/^"|"$/g, "");
+    return !ignoredDirtyPaths.some(
+      (ignored) =>
+        path === ignored ||
+        path.startsWith(ignored)
+    );
+  });
+
+if (relevantDirtyEntries.length > 0) {
   console.error(
     [
-      "Refusing to create a Firefox signing source archive from a dirty working tree.",
-      "Commit or stash your changes so the uploaded source matches the signed extension."
+      "Refusing to create a Firefox signing source archive from a dirty source tree.",
+      "Commit or stash source/config changes so the uploaded source matches the signed extension.",
+      "",
+      ...relevantDirtyEntries
     ].join("\n")
   );
   process.exit(2);
