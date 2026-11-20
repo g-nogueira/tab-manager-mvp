@@ -65,7 +65,7 @@ public sealed class ContextBackupService
 
         var now = DateTimeOffset.UtcNow;
         var id =
-            $"context-backup-{now:yyyyMMddTHHmmssfffZ}-{Guid.NewGuid():N}"[..52];
+            $"context-backup-{now:yyyyMMddTHHmmssfffZ}-{Guid.NewGuid():N}";
         var fileName = id + ".json";
         var json = JsonSerializer.Serialize(
             backup,
@@ -241,16 +241,17 @@ public sealed class ContextBackupService
 
         if (!string.IsNullOrWhiteSpace(directory))
         {
-            normalized = Path.GetFullPath(
+            var expanded =
                 Environment.ExpandEnvironmentVariables(
-                    directory.Trim()));
+                    directory.Trim());
 
-            if (!Path.IsPathFullyQualified(normalized))
+            if (!Path.IsPathFullyQualified(expanded))
             {
                 throw new InvalidDataException(
                     "Secondary backup directory must be an absolute path.");
             }
 
+            normalized = Path.GetFullPath(expanded);
             Directory.CreateDirectory(normalized);
         }
 
