@@ -1,6 +1,10 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type {
+    ContextBackupListResult,
+    ContextBackupMetadata
+  } from "../domain/backup";
+  import type {
     BrowserContext,
     ContextWindow,
     DesktopWindowReference,
@@ -40,6 +44,11 @@
   let desktopCandidates: DesktopWindowCandidate[] = [];
   let desktopCandidatesLoading = false;
   let desktopCandidatesError = "";
+  let backupList: ContextBackupListResult | undefined;
+  let backupExpanded = false;
+  let backupLoading = false;
+  let backupError = "";
+  let secondaryBackupDirectory = "";
 
   async function send(request: ManagerRequest): Promise<ManagerResponse> {
     return chrome.runtime.sendMessage(request) as Promise<ManagerResponse>;
@@ -245,6 +254,183 @@
 
   async function refreshAll(): Promise<void> {
     await Promise.all([refresh(), refreshDesktopStatus()]);
+
+    if (
+      desktopStatus?.available &&
+      desktopStatus.healthy &&
+      desktopStatus.canBackupContexts
+    ) {
+      await refreshBackupInfo();
+    } else {
+      backupList = undefined;
+    }
+  }
+
+  function canBackupContexts(
+    status: DesktopCompanionStatus | undefined
+  ): boolean {
+    return Boolean(
+      status?.available &&
+        status.healthy &&
+        status.canBackupContexts
+    );
+  }
+
+  function backupTimeLabel(
+    backup: ContextBackupMetadata | undefined
+  ): string {
+    if (!backup) return "No backups yet";
+
+    const value = new Date(backup.createdAt);
+
+    if (Number.isNaN(value.getTime())) {
+      return backup.createdAt;
+    }
+
+    return value.toLocaleString();
+  }
+
+  async function refreshBackupInfo(): Promise<void> {
+    if (!canBackupContexts(desktopStatus)) {
+      backupList = undefined;
+      return;
+    }
+
+    backupLoading = true;
+    backupError = "";
+
+    try {
+      const response = await send({ type: "backup:list" });
+
+      if (!response.ok || !response.backupList) {
+        backupError = response.ok
+          ? "Native companion did not return backup information."
+          : response.error;
+        return;
+      }
+
+      backupList = response.backupList;
+      secondaryBackupDirectory =
+        backupList.settings.secondaryBackupDirectory ?? "";
+    } catch (cause) {
+      backupError =
+        cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      backupLoading = false;
+    }
+  }
+
+  async function backupNow(): Promise<void> {
+    if (!canBackupContexts(desktopStatus)) {
+      backupError =
+        "Automatic backups require native companion protocol v3.";
+      return;
+    }
+
+    backupLoading = true;
+    backupError = "";
+
+    try {
+      const response = await send({ type: "backup:create" });
+
+      if (!response.ok || !response.backupSave) {
+        backupError = response.ok
+          ? "Native companion did not return the saved backup."
+          : response.error;
+        return;
+      }
+
+      toastMessage =
+        response.backupSave.secondaryError
+          ? `Backup saved locally. Secondary copy failed: ${response.backupSave.secondaryError}`
+          : "Context backup saved.";
+      toastUndoKind = undefined;
+
+      await refreshBackupInfo();
+    } catch (cause) {
+      backupError =
+        cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      backupLoading = false;
+    }
+  }
+
+  async function saveSecondaryBackupDirectory(): Promise<void> {
+    if (!canBackupContexts(desktopStatus)) return;
+
+    backupLoading = true;
+    backupError = "";
+
+    try {
+      const response = await send({
+        type: "backup:set-secondary-directory",
+        directory: secondaryBackupDirectory.trim() || undefined
+      });
+
+      if (!response.ok || !response.backupSettings) {
+        backupError = response.ok
+          ? "Native companion did not return backup settings."
+          : response.error;
+        return;
+      }
+
+      secondaryBackupDirectory =
+        response.backupSettings.secondaryBackupDirectory ?? "";
+
+      if (backupList) {
+        backupList = {
+          ...backupList,
+          settings: response.backupSettings
+        };
+      }
+
+      toastMessage = secondaryBackupDirectory
+        ? "Secondary backup folder saved."
+        : "Secondary backup folder disabled.";
+      toastUndoKind = undefined;
+    } catch (cause) {
+      backupError =
+        cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      backupLoading = false;
+    }
+  }
+
+  async function restoreBackup(
+    backup: ContextBackupMetadata
+  ): Promise<void> {
+    const confirmed = window.confirm(
+      `Restore the backup from ${backupTimeLabel(backup)}?\n\nCurrent context state will be backed up first. Restored browser windows will remain shelved until you choose Restore.`
+    );
+
+    if (!confirmed) return;
+
+    backupLoading = true;
+    backupError = "";
+
+    try {
+      const response = await send({
+        type: "backup:restore",
+        backupId: backup.id
+      });
+
+      if (!response.ok) {
+        backupError = response.error;
+        return;
+      }
+
+      applyResponse(response);
+      toastMessage =
+        `Restored ${backup.contextCount} context${backup.contextCount === 1 ? "" : "s"} from backup.`;
+      toastUndoKind = undefined;
+
+      await refreshBackupInfo();
+    } catch (cause) {
+      backupError =
+        cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      backupLoading = false;
+    }
   }
 
   function companionStatusState(
@@ -801,6 +987,7 @@
       : [...pinnedShelvedContexts, ...unpinnedShelvedContexts.slice(0, 6)];
   $: hiddenShelvedCount =
     Math.max(0, unpinnedShelvedContexts.length - 6);
+  $: latestBackup = backupList?.backups[0];
 
   onMount(() => {
     void (async () => {
@@ -877,6 +1064,103 @@
     {#if desktopStatus?.reason && companionStatusState(desktopStatus) !== "connected"}
       <div class="companion-reason" title={desktopStatus.reason}>
         {desktopStatus.reason}
+      </div>
+    {/if}
+  </div>
+
+  <div class="backup-panel">
+    <div class="backup-summary">
+      <button
+        class="backup-toggle"
+        title="Context backup and recovery"
+        on:click={() => (backupExpanded = !backupExpanded)}
+      >
+        <span class="backup-dot" class:ready={Boolean(latestBackup)}></span>
+        <span>
+          {#if !canBackupContexts(desktopStatus)}
+            Backups unavailable
+          {:else if backupLoading && !backupList}
+            Checking backups…
+          {:else if latestBackup}
+            Backup · {backupTimeLabel(latestBackup)}
+          {:else}
+            No context backup yet
+          {/if}
+        </span>
+        <span class="backup-chevron">{backupExpanded ? "▴" : "▾"}</span>
+      </button>
+
+      <button
+        class="backup-now"
+        disabled={!canBackupContexts(desktopStatus) || backupLoading}
+        title="Save a context backup now"
+        on:click={backupNow}
+      >
+        Backup now
+      </button>
+    </div>
+
+    {#if backupExpanded}
+      <div class="backup-details">
+        {#if !canBackupContexts(desktopStatus)}
+          <div class="backup-message">
+            Update/reinstall the native companion to protocol v3 to enable automatic backups.
+          </div>
+        {:else}
+          {#if backupList}
+            <div class="backup-path">
+              <span>Local</span>
+              <code title={backupList.settings.localBackupDirectory}>
+                {backupList.settings.localBackupDirectory}
+              </code>
+            </div>
+          {/if}
+
+          <label class="backup-secondary">
+            <span>Secondary/cloud-synced folder</span>
+            <div>
+              <input
+                bind:value={secondaryBackupDirectory}
+                placeholder="G:\My Drive\ContextTabManager"
+                disabled={backupLoading}
+              />
+              <button
+                disabled={backupLoading}
+                on:click={saveSecondaryBackupDirectory}
+              >Save</button>
+            </div>
+          </label>
+
+          {#if backupError}
+            <div class="backup-error">{backupError}</div>
+          {/if}
+
+          {#if backupList?.backups.length}
+            <div class="backup-history">
+              <strong>Recent restore points</strong>
+              {#each backupList.backups.slice(0, 6) as backup (backup.id)}
+                <div class="backup-row">
+                  <div>
+                    <span>{backupTimeLabel(backup)}</span>
+                    <small>
+                      {backup.contextCount} contexts ·
+                      {backup.windowCount} windows ·
+                      {backup.tabCount} tabs
+                    </small>
+                  </div>
+                  <button
+                    disabled={backupLoading}
+                    on:click={() => restoreBackup(backup)}
+                  >Restore</button>
+                </div>
+              {/each}
+            </div>
+          {:else if !backupLoading}
+            <div class="backup-message">
+              No restore points have been created yet.
+            </div>
+          {/if}
+        {/if}
       </div>
     {/if}
   </div>
