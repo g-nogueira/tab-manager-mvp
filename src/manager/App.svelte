@@ -647,29 +647,35 @@
       contexts.map((context) => [context.id, context] as const)
     );
     const currentId = contextNavigation.currentContextId;
+
+    const previous = contextNavigation.previousContextId
+      ? byId.get(contextNavigation.previousContextId)
+      : undefined;
+
     const recent = contextNavigation.recentContextIds
       .map((id) => byId.get(id))
-      .filter((context): context is BrowserContext => Boolean(context))
-      .filter((context) => context.id !== currentId);
+      .filter((context): context is BrowserContext => Boolean(context));
 
-    const pinnedMissing = contexts
-      .filter(
-        (context) =>
-          context.pinned &&
-          context.id !== currentId &&
-          !recent.some((item) => item.id === context.id)
-      )
-      .sort(
-        (a, b) =>
-          (b.lastFocusedAt ?? b.updatedAt) -
-          (a.lastFocusedAt ?? a.updatedAt)
-      );
+    const recencyFallback = [...contexts].sort(
+      (a, b) =>
+        (b.lastFocusedAt ?? b.updatedAt) -
+        (a.lastFocusedAt ?? a.updatedAt)
+    );
+
+    const pinned = recencyFallback.filter(
+      (context) => context.pinned
+    );
 
     const combined = [
-      ...recent.slice(0, 5),
-      ...pinnedMissing,
-      ...recent.slice(5)
-    ];
+      previous,
+      ...recent,
+      ...recencyFallback,
+      ...pinned
+    ].filter(
+      (context): context is BrowserContext =>
+        Boolean(context) &&
+        context.id !== currentId
+    );
 
     return combined
       .filter(
