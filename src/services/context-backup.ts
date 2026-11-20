@@ -39,7 +39,7 @@ function portableContexts(
   }));
 }
 
-function validateBackup(
+export function validateContextBackupDocument(
   value: unknown
 ): asserts value is ContextBackupDocument {
   if (!value || typeof value !== "object") {
@@ -170,6 +170,58 @@ export async function setContextBackupSecondaryDirectory(
   return settings;
 }
 
+export async function applyContextBackupDocument(
+  backup: ContextBackupDocument,
+  requestId = createDiagnosticRequestId()
+): Promise<void> {
+  validateContextBackupDocument(backup);
+
+  const restoredAt = Date.now();
+  const restoredContexts = backup.contexts.map((context) => ({
+    ...context,
+    shelvedAt: restoredAt,
+    updatedAt: Math.max(context.updatedAt, restoredAt),
+    windows: context.windows.map((window) => ({
+      ...window,
+      state: "shelved" as const,
+      windowId: undefined,
+      updatedAt: Math.max(window.updatedAt, restoredAt),
+      tabs: window.tabs.map((tab) => ({
+        ...tab,
+        tabId: undefined
+      }))
+    }))
+  }));
+
+  const organizationTargetId =
+    backup.organizationTargetId &&
+    restoredContexts.some(
+      (context) =>
+        context.id === backup.organizationTargetId
+    )
+      ? backup.organizationTargetId
+      : undefined;
+
+  await chrome.storage.session.clear();
+  await chrome.storage.local.set({
+    contexts: restoredContexts,
+    ...(organizationTargetId
+      ? { organizationTargetId }
+      : {})
+  });
+
+  if (!organizationTargetId) {
+    await chrome.storage.local.remove(
+      "organizationTargetId"
+    );
+  }
+
+  diagnosticInfo("backup", "restore:completed", {
+    requestId,
+    contextCount: restoredContexts.length
+  });
+}
+
 export async function restoreContextBackup(
   backupId: string,
   requestId = createDiagnosticRequestId()
@@ -196,53 +248,13 @@ export async function restoreContextBackup(
   }
 
   const result = response.result as NativeReadBackupResult | undefined;
-  validateBackup(result?.backup);
+  const backup = result?.backup;
+  validateContextBackupDocument(backup);
 
-  const restoredAt = Date.now();
-  const restoredContexts = result.backup.contexts.map((context) => ({
-    ...context,
-    shelvedAt: restoredAt,
-    updatedAt: Math.max(context.updatedAt, restoredAt),
-    windows: context.windows.map((window) => ({
-      ...window,
-      state: "shelved" as const,
-      windowId: undefined,
-      updatedAt: Math.max(window.updatedAt, restoredAt),
-      tabs: window.tabs.map((tab) => ({
-        ...tab,
-        tabId: undefined
-      }))
-    }))
-  }));
+  await applyContextBackupDocument(
+    backup,
+    requestId
+  );
 
-  const organizationTargetId =
-    result.backup.organizationTargetId &&
-    restoredContexts.some(
-      (context) =>
-        context.id === result.backup.organizationTargetId
-    )
-      ? result.backup.organizationTargetId
-      : undefined;
-
-  await chrome.storage.session.clear();
-  await chrome.storage.local.set({
-    contexts: restoredContexts,
-    ...(organizationTargetId
-      ? { organizationTargetId }
-      : {})
-  });
-
-  if (!organizationTargetId) {
-    await chrome.storage.local.remove(
-      "organizationTargetId"
-    );
-  }
-
-  diagnosticInfo("backup", "restore:completed", {
-    requestId,
-    backupId,
-    contextCount: restoredContexts.length
-  });
-
-  return result.backup;
+  return backup;
 }
