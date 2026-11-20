@@ -1,4 +1,5 @@
 import type {
+  ContextBackupDocument,
   ContextBackupListResult,
   ContextBackupSaveResult,
   ContextBackupSettings
@@ -18,6 +19,8 @@ export type ManagerRequest =
   | { type: "desktop:list-windows"; requestId: string }
   | { type: "backup:list" }
   | { type: "backup:create" }
+  | { type: "backup:export" }
+  | { type: "backup:import"; backup: ContextBackupDocument }
   | { type: "backup:restore"; backupId: string }
   | {
       type: "backup:set-secondary-directory";
@@ -64,5 +67,6 @@ export type ManagerResponse =
       backupList?: ContextBackupListResult;
       backupSave?: ContextBackupSaveResult;
       backupSettings?: ContextBackupSettings;
+      backupDocument?: ContextBackupDocument;
     }
   | { ok: false; error: string };
