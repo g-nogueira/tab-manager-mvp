@@ -57,6 +57,7 @@ import {
   renameContext,
   restoreContext,
   shelveContext,
+  switchContext,
   syncWindow,
   undoLastWindowMove
 } from "../services/window-reconciler";
