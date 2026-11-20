@@ -389,6 +389,8 @@
         ? "Secondary backup folder saved."
         : "Secondary backup folder disabled.";
       toastUndoKind = undefined;
+
+      await refreshBackupInfo();
     } catch (cause) {
       backupError =
         cause instanceof Error ? cause.message : String(cause);
@@ -1131,6 +1133,10 @@
               >Save</button>
             </div>
           </label>
+
+          <div class="backup-warning">
+            Backup JSON contains context names, tab titles/URLs and desktop-window references. Use a private or encrypted synced folder.
+          </div>
 
           {#if backupError}
             <div class="backup-error">{backupError}</div>
@@ -2009,10 +2015,15 @@
   }
 
   .backup-message,
-  .backup-error {
+  .backup-error,
+  .backup-warning {
     color: #83979c;
     font-size: 9px;
     line-height: 1.4;
+  }
+
+  .backup-warning {
+    color: #a99272;
   }
 
   .backup-error {
