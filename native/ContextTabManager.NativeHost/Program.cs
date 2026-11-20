@@ -4,7 +4,10 @@ using ContextTabManager.NativeHost.Platform;
 using ContextTabManager.NativeHost.Protocol;
 
 var desktopService = DesktopServiceFactory.Create();
-var dispatcher = new DesktopCommandDispatcher(desktopService);
+var backupService = new ContextBackupService();
+var dispatcher = new DesktopCommandDispatcher(
+    desktopService,
+    backupService);
 var transport = new NativeMessagingTransport(
     Console.OpenStandardInput(),
     Console.OpenStandardOutput());
@@ -62,6 +65,18 @@ while (true)
         {
             NativeHostDiagnostics.Info(
                 $"Desktop window discovery returned {listResult.Windows.Count} candidate(s).",
+                request.RequestId);
+        }
+        else if (response.Result is SaveContextBackupResult backupResult)
+        {
+            NativeHostDiagnostics.Info(
+                $"Context backup saved: {backupResult.Backup.Id}, contexts={backupResult.Backup.ContextCount}, tabs={backupResult.Backup.TabCount}, secondary={backupResult.SecondaryCopyWritten}.",
+                request.RequestId);
+        }
+        else if (response.Result is ListContextBackupsResult backupsResult)
+        {
+            NativeHostDiagnostics.Info(
+                $"Context backup discovery returned {backupsResult.Backups.Count} snapshot(s).",
                 request.RequestId);
         }
     }
