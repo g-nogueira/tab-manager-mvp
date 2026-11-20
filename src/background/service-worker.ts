@@ -22,8 +22,7 @@ import {
 } from "../services/context-backup";
 import {
   getDesktopCompanionStatus,
-  listDesktopWindows,
-  prepareDesktopForFocus
+  listDesktopWindows
 } from "../services/desktop-companion-client";
 import {
   addDesktopWindowToContext,
@@ -58,7 +57,6 @@ import {
   renameContext,
   restoreContext,
   shelveContext,
-  switchContext,
   syncWindow,
   undoLastWindowMove
 } from "../services/window-reconciler";
