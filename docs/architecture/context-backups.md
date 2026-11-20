@@ -22,7 +22,7 @@ Current schema: `schemaVersion = 1`.
 
 A backup contains:
 
-- creation time and extension version;
+- creation time, extension version and source browser target;
 - reason: automatic, manual or pre-restore;
 - contexts and persistent context/window IDs;
 - context/window names and lifecycle metadata;
@@ -37,6 +37,8 @@ It deliberately removes browser-session identifiers:
 - session bindings and undo data.
 
 Those values have meaning only in one browser process/profile and must never be restored onto another session.
+
+The source browser (`chrome` or `firefox`) is metadata, not a restore restriction. The portable schema intentionally permits Chrome → Firefox or Firefox → Chrome recovery when the user chooses that restore point.
 
 ## Automatic capture
 
