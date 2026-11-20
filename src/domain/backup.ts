@@ -6,6 +6,7 @@ export interface ContextBackupDocument {
   schemaVersion: typeof CONTEXT_BACKUP_SCHEMA_VERSION;
   createdAt: string;
   extensionVersion: string;
+  browserTarget: "chrome" | "firefox";
   reason: "automatic" | "manual" | "pre-restore";
   contexts: BrowserContext[];
   organizationTargetId?: string;
@@ -15,6 +16,7 @@ export interface ContextBackupMetadata {
   id: string;
   createdAt: string;
   reason?: string;
+  browserTarget?: "chrome" | "firefox";
   contextCount: number;
   windowCount: number;
   tabCount: number;
