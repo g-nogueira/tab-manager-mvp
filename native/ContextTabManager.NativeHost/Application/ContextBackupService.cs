@@ -7,6 +7,7 @@ public sealed record ContextBackupMetadata(
     string Id,
     string CreatedAt,
     string? Reason,
+    string? BrowserTarget,
     int ContextCount,
     int WindowCount,
     int TabCount,
@@ -476,10 +477,19 @@ public sealed class ContextBackupService
                 ? reasonElement.GetString()
                 : null;
 
+        var browserTarget =
+            backup.TryGetProperty(
+                "browserTarget",
+                out var browserTargetElement) &&
+            browserTargetElement.ValueKind == JsonValueKind.String
+                ? browserTargetElement.GetString()
+                : null;
+
         return new ContextBackupMetadata(
             Path.GetFileNameWithoutExtension(path),
             createdAt,
             reason,
+            browserTarget,
             contextCount,
             windowCount,
             tabCount,
