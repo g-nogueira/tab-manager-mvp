@@ -299,6 +299,7 @@ chrome.tabs.onAttached.addListener((tabId, attachInfo) => {
 chrome.tabs.onActivated.addListener((activeInfo) => sync(activeInfo.windowId));
 
 const QUICK_SWITCHER_SESSION_KEY = "quickContextSwitcherRequestedAt";
+const QUICK_SWITCHER_CYCLE_KEY = "quickContextSwitcherCycleToken";
 
 chrome.commands.onCommand.addListener((command) => {
   if (command === "focus-previous-context") {
@@ -322,7 +323,8 @@ chrome.commands.onCommand.addListener((command) => {
     void (async () => {
       try {
         await chrome.storage.session.set({
-          [QUICK_SWITCHER_SESSION_KEY]: Date.now()
+          [QUICK_SWITCHER_SESSION_KEY]: Date.now(),
+          [QUICK_SWITCHER_CYCLE_KEY]: crypto.randomUUID()
         });
 
         await chrome.action.openPopup();
