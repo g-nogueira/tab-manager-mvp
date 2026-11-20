@@ -30,5 +30,19 @@
         ]
       }
     }
+  },
+  "commands": {
+    "focus-previous-context": {
+      "suggested_key": {
+        "default": "Alt+Shift+Q"
+      },
+      "description": "Focus the previously used context"
+    },
+    "open-quick-context-switcher": {
+      "suggested_key": {
+        "default": "Alt+Shift+W"
+      },
+      "description": "Open the recent-context quick switcher"
+    }
   }
 }
