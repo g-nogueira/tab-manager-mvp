@@ -159,6 +159,7 @@ chrome.runtime.onInstalled.addListener(() => {
     await reconcileAllWindows();
     await cleanupShelvedContexts();
     await rebuildTabContextMenus();
+    scheduleAutomaticContextBackup();
   });
 });
 
@@ -168,6 +169,7 @@ chrome.runtime.onStartup.addListener(() => {
       await reconcileAllWindows();
       await cleanupShelvedContexts();
       await rebuildTabContextMenus();
+      scheduleAutomaticContextBackup();
     });
   }, 1000);
 });
