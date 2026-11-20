@@ -15,6 +15,7 @@
     DesktopCompanionStatus,
     DesktopWindowCandidate
   } from "../domain/desktop";
+  import type { ContextNavigationState } from "../domain/navigation";
   import type { ManagerRequest, ManagerResponse } from "../domain/messages";
   import {
     createDiagnosticRequestId,
@@ -52,6 +53,11 @@
   let backupError = "";
   let secondaryBackupDirectory = "";
   let importBackupInput: HTMLInputElement;
+  let contextNavigation: ContextNavigationState = {
+    recentContextIds: []
+  };
+  let quickSwitcherMode = false;
+  let quickSelectedIndex = 0;
 
   async function send(request: ManagerRequest): Promise<ManagerResponse> {
     return chrome.runtime.sendMessage(request) as Promise<ManagerResponse>;
@@ -139,6 +145,8 @@
     applyContexts(response.contexts ?? []);
     organizationTargetId = response.organizationTargetId;
     canUndoWindowMove = response.canUndoWindowMove ?? false;
+    contextNavigation =
+      response.contextNavigation ?? contextNavigation;
     error = "";
     return true;
   }
@@ -1021,6 +1029,72 @@
     });
   }
 
+  async function quickFocusContext(
+    context: BrowserContext
+  ): Promise<void> {
+    error = "";
+
+    const response = await send({
+      type: "contexts:focus",
+      contextId: context.id,
+      requestId: createDiagnosticRequestId()
+    });
+
+    if (!response.ok) {
+      error = response.error;
+      return;
+    }
+
+    applyResponse(response);
+    window.close();
+  }
+
+  function handleQuickSwitcherKeydown(
+    event: KeyboardEvent
+  ): void {
+    if (!quickSwitcherMode || quickContexts.length === 0) {
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      quickSelectedIndex =
+        (quickSelectedIndex + 1) % quickContexts.length;
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      quickSelectedIndex =
+        (quickSelectedIndex - 1 + quickContexts.length) %
+        quickContexts.length;
+      return;
+    }
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const selected = quickContexts[quickSelectedIndex];
+      if (selected) void quickFocusContext(selected);
+      return;
+    }
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      window.close();
+      return;
+    }
+
+    if (/^[1-8]$/.test(event.key)) {
+      const index = Number(event.key) - 1;
+      const selected = quickContexts[index];
+
+      if (selected) {
+        event.preventDefault();
+        void quickFocusContext(selected);
+      }
+    }
+  }
+
   async function switchToContext(contextId: string): Promise<void> {
     closeMenus();
     await run({ type: "contexts:switch", contextId });
@@ -1088,9 +1162,41 @@
   $: hiddenShelvedCount =
     Math.max(0, unpinnedShelvedContexts.length - 6);
   $: latestBackup = backupList?.backups[0];
+  $: quickContexts = contextNavigation.recentContextIds
+    .map((id) => contexts.find((context) => context.id === id))
+    .filter((context): context is BrowserContext => Boolean(context))
+    .filter(
+      (context) =>
+        context.id !== contextNavigation.currentContextId
+    )
+    .slice(0, 8);
+  $: if (
+    quickContexts.length > 0 &&
+    quickSelectedIndex >= quickContexts.length
+  ) {
+    quickSelectedIndex = 0;
+  }
 
   onMount(() => {
     void (async () => {
+      try {
+        const quickState = await chrome.storage.session.get(
+          "quickContextSwitcherRequestedAt"
+        );
+        const requestedAt =
+          quickState.quickContextSwitcherRequestedAt;
+
+        quickSwitcherMode =
+          typeof requestedAt === "number" &&
+          Date.now() - requestedAt < 15000;
+
+        await chrome.storage.session.remove(
+          "quickContextSwitcherRequestedAt"
+        );
+      } catch {
+        quickSwitcherMode = false;
+      }
+
       try {
         const currentWindow = await chrome.windows.getCurrent();
         currentBrowserWindowId = currentWindow.id;
@@ -1128,7 +1234,63 @@
   <title>Context Tab Manager</title>
 </svelte:head>
 
+<svelte:window on:keydown={handleQuickSwitcherKeydown} />
+
 <main>
+  {#if quickSwitcherMode}
+    <section class="quick-switcher">
+      <div class="quick-header">
+        <div>
+          <h1>Switch context</h1>
+          <p>Most recently used workspaces</p>
+        </div>
+        <button
+          class="quick-close"
+          aria-label="Close"
+          title="Close"
+          on:click={() => window.close()}
+        >×</button>
+      </div>
+
+      {#if loading}
+        <div class="quick-empty">Loading contexts…</div>
+      {:else if quickContexts.length === 0}
+        <div class="quick-empty">
+          No previous context is available yet.
+        </div>
+      {:else}
+        <div class="quick-list">
+          {#each quickContexts as context, index (context.id)}
+            <button
+              class="quick-context"
+              class:selected={index === quickSelectedIndex}
+              on:mouseenter={() => (quickSelectedIndex = index)}
+              on:click={() => quickFocusContext(context)}
+            >
+              <span class="quick-number">{index + 1}</span>
+              <span class="quick-context-text">
+                <strong>{contextName(context)}</strong>
+                <small>
+                  {contextIsActive(context) ? "Active" : context.pinned ? "Shelved · pinned" : "Shelved"}
+                  · {context.windows.length} {context.windows.length === 1 ? "window" : "windows"}
+                  {#if context.desktopWindows.length > 0}
+                    · {context.desktopWindows.length} desktop
+                  {/if}
+                </small>
+              </span>
+            </button>
+          {/each}
+        </div>
+        <div class="quick-help">
+          ↑/↓ select · Enter switch · 1–8 direct · Esc close
+        </div>
+      {/if}
+
+      {#if error}
+        <div class="error">{error}</div>
+      {/if}
+    </section>
+  {:else}
   <header>
     <div>
       <h1>Contexts</h1>
@@ -1825,6 +1987,8 @@
     </section>
   {/if}
 
+  {/if}
+
   {#if toastMessage}
     <div class="toast">
       <span>{toastMessage}</span>
@@ -1881,6 +2045,123 @@
     min-height: 560px;
     padding: 18px;
     overflow-x: hidden;
+  }
+
+  .quick-switcher {
+    margin: 0;
+  }
+
+  .quick-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+
+  .quick-header h1 {
+    margin: 0;
+    font-size: 17px;
+  }
+
+  .quick-header p {
+    margin: 2px 0 0;
+    color: #84999e;
+    font-size: 10px;
+  }
+
+  .quick-close {
+    width: 28px;
+    height: 28px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: #91a5aa;
+    cursor: pointer;
+  }
+
+  .quick-close:hover {
+    border-color: #39535b;
+    background: #21363c;
+  }
+
+  .quick-list {
+    display: grid;
+    gap: 5px;
+  }
+
+  .quick-context {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    align-items: center;
+    gap: 9px;
+    padding: 9px 10px;
+    border: 1px solid #263d44;
+    border-radius: 8px;
+    background: #142227;
+    color: #c8d5d8;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .quick-context:hover,
+  .quick-context.selected {
+    border-color: #4c9fa6;
+    background: #172a30;
+  }
+
+  .quick-number {
+    display: grid;
+    width: 22px;
+    height: 22px;
+    flex: 0 0 22px;
+    place-items: center;
+    border: 1px solid #355159;
+    border-radius: 6px;
+    color: #89bfc4;
+    font-size: 10px;
+  }
+
+  .quick-context-text {
+    display: grid;
+    min-width: 0;
+    flex: 1;
+    gap: 2px;
+  }
+
+  .quick-context-text strong,
+  .quick-context-text small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .quick-context-text strong {
+    font-size: 12px;
+  }
+
+  .quick-context-text small {
+    color: #7f969b;
+    font-size: 9px;
+  }
+
+  .quick-help,
+  .quick-empty {
+    color: #7f9297;
+    font-size: 9px;
+  }
+
+  .quick-help {
+    margin-top: 9px;
+    text-align: center;
+  }
+
+  .quick-empty {
+    padding: 16px 8px;
+    border: 1px dashed #30464d;
+    border-radius: 7px;
+    text-align: center;
   }
 
   header {
