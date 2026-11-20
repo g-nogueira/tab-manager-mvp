@@ -5,6 +5,7 @@ import type {
   ContextBackupSettings
 } from "./backup";
 import type { BrowserContext } from "./context";
+import type { ContextNavigationState } from "./navigation";
 import type {
   DesktopCompanionStatus,
   DesktopWindowCandidate
@@ -68,5 +69,6 @@ export type ManagerResponse =
       backupSave?: ContextBackupSaveResult;
       backupSettings?: ContextBackupSettings;
       backupDocument?: ContextBackupDocument;
+      contextNavigation?: ContextNavigationState;
     }
   | { ok: false; error: string };
