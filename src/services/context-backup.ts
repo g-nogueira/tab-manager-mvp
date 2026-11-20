@@ -71,6 +71,7 @@ export async function createContextBackupDocument(
     schemaVersion: CONTEXT_BACKUP_SCHEMA_VERSION,
     createdAt: new Date().toISOString(),
     extensionVersion: chrome.runtime.getManifest().version,
+    browserTarget: __BROWSER_TARGET__,
     reason,
     contexts: portableContexts(contexts),
     organizationTargetId
