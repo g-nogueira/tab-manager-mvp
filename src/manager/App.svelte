@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type {
+    ContextBackupDocument,
     ContextBackupListResult,
     ContextBackupMetadata
   } from "../domain/backup";
@@ -50,6 +51,7 @@
   let backupLoading = false;
   let backupError = "";
   let secondaryBackupDirectory = "";
+  let importBackupInput: HTMLInputElement;
 
   async function send(request: ManagerRequest): Promise<ManagerResponse> {
     return chrome.runtime.sendMessage(request) as Promise<ManagerResponse>;
@@ -391,6 +393,101 @@
       toastUndoKind = undefined;
 
       await refreshBackupInfo();
+    } catch (cause) {
+      backupError =
+        cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      backupLoading = false;
+    }
+  }
+
+  async function exportBackupFile(): Promise<void> {
+    backupError = "";
+
+    try {
+      const response = await send({ type: "backup:export" });
+
+      if (!response.ok || !response.backupDocument) {
+        backupError = response.ok
+          ? "Extension did not return an exportable backup."
+          : response.error;
+        return;
+      }
+
+      const blob = new Blob(
+        [JSON.stringify(response.backupDocument, null, 2)],
+        { type: "application/json" }
+      );
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      const stamp = response.backupDocument.createdAt
+        .replace(/[:.]/g, "-");
+
+      anchor.href = url;
+      anchor.download =
+        `context-tab-manager-backup-${stamp}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+
+      toastMessage = "Portable JSON backup exported.";
+      toastUndoKind = undefined;
+    } catch (cause) {
+      backupError =
+        cause instanceof Error ? cause.message : String(cause);
+    }
+  }
+
+  function chooseImportBackupFile(): void {
+    importBackupInput?.click();
+  }
+
+  async function importBackupFile(
+    event: Event
+  ): Promise<void> {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+
+    input.value = "";
+
+    if (!file) return;
+
+    backupError = "";
+
+    try {
+      const parsed = JSON.parse(
+        await file.text()
+      ) as ContextBackupDocument;
+
+      const contextCount = Array.isArray(parsed.contexts)
+        ? parsed.contexts.length
+        : 0;
+
+      const confirmed = window.confirm(
+        `Import ${contextCount} context${contextCount === 1 ? "" : "s"} from ${file.name}?\n\nCurrent state will be replaced. When the native companion is available, a pre-restore safety snapshot is created first.`
+      );
+
+      if (!confirmed) return;
+
+      backupLoading = true;
+
+      const response = await send({
+        type: "backup:import",
+        backup: parsed
+      });
+
+      if (!response.ok) {
+        backupError = response.error;
+        return;
+      }
+
+      applyResponse(response);
+      toastMessage =
+        `Imported ${contextCount} context${contextCount === 1 ? "" : "s"} from JSON.`;
+      toastUndoKind = undefined;
+
+      if (canBackupContexts(desktopStatus)) {
+        await refreshBackupInfo();
+      }
     } catch (cause) {
       backupError =
         cause instanceof Error ? cause.message : String(cause);
@@ -1136,6 +1233,24 @@
 
           <div class="backup-warning">
             Backup JSON contains context names, tab titles/URLs and desktop-window references. Use a private or encrypted synced folder.
+          </div>
+
+          <div class="backup-portable-actions">
+            <button
+              disabled={backupLoading}
+              on:click={exportBackupFile}
+            >Export JSON</button>
+            <button
+              disabled={backupLoading}
+              on:click={chooseImportBackupFile}
+            >Import JSON</button>
+            <input
+              class="backup-file-input"
+              bind:this={importBackupInput}
+              type="file"
+              accept="application/json,.json"
+              on:change={importBackupFile}
+            />
           </div>
 
           {#if backupError}
@@ -1959,6 +2074,20 @@
   .backup-secondary button {
     padding: 5px 8px;
     font-size: 10px;
+  }
+
+  .backup-portable-actions {
+    display: flex;
+    gap: 5px;
+  }
+
+  .backup-portable-actions button {
+    padding: 5px 8px;
+    font-size: 9px;
+  }
+
+  .backup-file-input {
+    display: none;
   }
 
   .backup-history {
