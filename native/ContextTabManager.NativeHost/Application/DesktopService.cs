@@ -10,7 +10,8 @@ public sealed record DesktopCompanionStatus(
     int ProtocolVersion,
     string Platform,
     bool CanPrepareDesktopForFocus,
-    bool CanEnumerateDesktopWindows);
+    bool CanEnumerateDesktopWindows,
+    bool CanBackupContexts);
 
 public sealed record DesktopWindowMatcher(
     string ProcessName,

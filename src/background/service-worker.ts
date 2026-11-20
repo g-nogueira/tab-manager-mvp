@@ -4,6 +4,17 @@ import {
   diagnosticInfo
 } from "../services/diagnostics";
 import {
+  CONTEXT_BACKUP_ALARM,
+  CONTEXT_BACKUP_DEBOUNCE_MS,
+  applyContextBackupDocument,
+  createContextBackupDocument,
+  listContextBackups,
+  restoreContextBackup,
+  saveContextBackup,
+  setContextBackupSecondaryDirectory,
+  validateContextBackupDocument
+} from "../services/context-backup";
+import {
   getDesktopCompanionStatus,
   listDesktopWindows,
   prepareDesktopForFocus
@@ -77,6 +88,47 @@ function sync(windowId?: number, touchedFocus = false): void {
   void enqueue(() => syncWindow(windowId, { touchedFocus }));
 }
 
+function scheduleAutomaticContextBackup(): void {
+  chrome.alarms.create(
+    CONTEXT_BACKUP_ALARM,
+    {
+      when:
+        Date.now() +
+        CONTEXT_BACKUP_DEBOUNCE_MS
+    }
+  );
+}
+
+chrome.storage.onChanged.addListener(
+  (changes, areaName) => {
+    if (areaName !== "local") return;
+
+    if (
+      "contexts" in changes ||
+      "organizationTargetId" in changes
+    ) {
+      scheduleAutomaticContextBackup();
+    }
+  }
+);
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name !== CONTEXT_BACKUP_ALARM) return;
+
+  void enqueue(async () => {
+    try {
+      await ensureBootstrapped();
+      await saveContextBackup("automatic");
+    } catch (error) {
+      diagnosticError(
+        "background",
+        "context-backup:auto-failed",
+        error
+      );
+    }
+  });
+});
+
 if (__BROWSER_TARGET__ === "chrome") {
   chrome.windows.onBoundsChanged.addListener((window) => {
     if (window.id === undefined || window.type !== "normal") return;
@@ -110,6 +162,7 @@ chrome.runtime.onInstalled.addListener(() => {
     await reconcileAllWindows();
     await cleanupShelvedContexts();
     await rebuildTabContextMenus();
+    scheduleAutomaticContextBackup();
   });
 });
 
@@ -119,6 +172,7 @@ chrome.runtime.onStartup.addListener(() => {
       await reconcileAllWindows();
       await cleanupShelvedContexts();
       await rebuildTabContextMenus();
+      scheduleAutomaticContextBackup();
     });
   }, 1000);
 });
@@ -368,6 +422,85 @@ chrome.runtime.onMessage.addListener(
               contextId: request.contextId
             });
             break;
+          }
+
+          case "backup:list": {
+            const backupList =
+              await listContextBackups();
+
+            return {
+              ok: true,
+              backupList
+            } satisfies ManagerResponse;
+          }
+
+          case "backup:create": {
+            const backupSave =
+              await saveContextBackup("manual");
+
+            return {
+              ok: true,
+              backupSave
+            } satisfies ManagerResponse;
+          }
+
+          case "backup:export": {
+            const backupDocument =
+              await createContextBackupDocument("manual");
+
+            return {
+              ok: true,
+              backupDocument
+            } satisfies ManagerResponse;
+          }
+
+          case "backup:import":
+            validateContextBackupDocument(
+              request.backup
+            );
+
+            try {
+              const currentContexts =
+                await loadContexts();
+
+              if (currentContexts.length > 0) {
+                await saveContextBackup(
+                  "pre-restore"
+                );
+              }
+            } catch (error) {
+              diagnosticError(
+                "background",
+                "context-backup:import-safety-backup-failed",
+                error
+              );
+            }
+
+            await applyContextBackupDocument(
+              request.backup
+            );
+            await reconcileAllWindows();
+            await cleanupShelvedContexts();
+            break;
+
+          case "backup:restore":
+            await restoreContextBackup(
+              request.backupId
+            );
+            await reconcileAllWindows();
+            await cleanupShelvedContexts();
+            break;
+
+          case "backup:set-secondary-directory": {
+            const backupSettings =
+              await setContextBackupSecondaryDirectory(
+                request.directory
+              );
+
+            return {
+              ok: true,
+              backupSettings
+            } satisfies ManagerResponse;
           }
 
           case "contexts:add-desktop-window":

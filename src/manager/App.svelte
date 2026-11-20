@@ -1,6 +1,11 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type {
+    ContextBackupDocument,
+    ContextBackupListResult,
+    ContextBackupMetadata
+  } from "../domain/backup";
+  import type {
     BrowserContext,
     ContextWindow,
     DesktopWindowReference,
@@ -40,6 +45,13 @@
   let desktopCandidates: DesktopWindowCandidate[] = [];
   let desktopCandidatesLoading = false;
   let desktopCandidatesError = "";
+  let backupList: ContextBackupListResult | undefined;
+  let latestBackup: ContextBackupMetadata | undefined;
+  let backupExpanded = false;
+  let backupLoading = false;
+  let backupError = "";
+  let secondaryBackupDirectory = "";
+  let importBackupInput: HTMLInputElement;
 
   async function send(request: ManagerRequest): Promise<ManagerResponse> {
     return chrome.runtime.sendMessage(request) as Promise<ManagerResponse>;
@@ -245,6 +257,280 @@
 
   async function refreshAll(): Promise<void> {
     await Promise.all([refresh(), refreshDesktopStatus()]);
+
+    if (
+      desktopStatus?.available &&
+      desktopStatus.healthy &&
+      desktopStatus.canBackupContexts
+    ) {
+      await refreshBackupInfo();
+    } else {
+      backupList = undefined;
+    }
+  }
+
+  function canBackupContexts(
+    status: DesktopCompanionStatus | undefined
+  ): boolean {
+    return Boolean(
+      status?.available &&
+        status.healthy &&
+        status.canBackupContexts
+    );
+  }
+
+  function backupTimeLabel(
+    backup: ContextBackupMetadata | undefined
+  ): string {
+    if (!backup) return "No backups yet";
+
+    const value = new Date(backup.createdAt);
+
+    if (Number.isNaN(value.getTime())) {
+      return backup.createdAt;
+    }
+
+    return value.toLocaleString();
+  }
+
+  async function refreshBackupInfo(): Promise<void> {
+    if (!canBackupContexts(desktopStatus)) {
+      backupList = undefined;
+      return;
+    }
+
+    backupLoading = true;
+    backupError = "";
+
+    try {
+      const response = await send({ type: "backup:list" });
+
+      if (!response.ok || !response.backupList) {
+        backupError = response.ok
+          ? "Native companion did not return backup information."
+          : response.error;
+        return;
+      }
+
+      backupList = response.backupList;
+      secondaryBackupDirectory =
+        backupList.settings.secondaryBackupDirectory ?? "";
+    } catch (cause) {
+      backupError =
+        cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      backupLoading = false;
+    }
+  }
+
+  async function backupNow(): Promise<void> {
+    if (!canBackupContexts(desktopStatus)) {
+      backupError =
+        "Automatic backups require native companion protocol v3.";
+      return;
+    }
+
+    backupLoading = true;
+    backupError = "";
+
+    try {
+      const response = await send({ type: "backup:create" });
+
+      if (!response.ok || !response.backupSave) {
+        backupError = response.ok
+          ? "Native companion did not return the saved backup."
+          : response.error;
+        return;
+      }
+
+      toastMessage =
+        response.backupSave.secondaryError
+          ? `Backup saved locally. Secondary copy failed: ${response.backupSave.secondaryError}`
+          : "Context backup saved.";
+      toastUndoKind = undefined;
+
+      await refreshBackupInfo();
+    } catch (cause) {
+      backupError =
+        cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      backupLoading = false;
+    }
+  }
+
+  async function saveSecondaryBackupDirectory(): Promise<void> {
+    if (!canBackupContexts(desktopStatus)) return;
+
+    backupLoading = true;
+    backupError = "";
+
+    try {
+      const response = await send({
+        type: "backup:set-secondary-directory",
+        directory: secondaryBackupDirectory.trim() || undefined
+      });
+
+      if (!response.ok || !response.backupSettings) {
+        backupError = response.ok
+          ? "Native companion did not return backup settings."
+          : response.error;
+        return;
+      }
+
+      secondaryBackupDirectory =
+        response.backupSettings.secondaryBackupDirectory ?? "";
+
+      if (backupList) {
+        backupList = {
+          ...backupList,
+          settings: response.backupSettings
+        };
+      }
+
+      toastMessage = secondaryBackupDirectory
+        ? "Secondary backup folder saved."
+        : "Secondary backup folder disabled.";
+      toastUndoKind = undefined;
+
+      await refreshBackupInfo();
+    } catch (cause) {
+      backupError =
+        cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      backupLoading = false;
+    }
+  }
+
+  async function exportBackupFile(): Promise<void> {
+    backupError = "";
+
+    try {
+      const response = await send({ type: "backup:export" });
+
+      if (!response.ok || !response.backupDocument) {
+        backupError = response.ok
+          ? "Extension did not return an exportable backup."
+          : response.error;
+        return;
+      }
+
+      const blob = new Blob(
+        [JSON.stringify(response.backupDocument, null, 2)],
+        { type: "application/json" }
+      );
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      const stamp = response.backupDocument.createdAt
+        .replace(/[:.]/g, "-");
+
+      anchor.href = url;
+      anchor.download =
+        `context-tab-manager-backup-${stamp}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+
+      toastMessage = "Portable JSON backup exported.";
+      toastUndoKind = undefined;
+    } catch (cause) {
+      backupError =
+        cause instanceof Error ? cause.message : String(cause);
+    }
+  }
+
+  function chooseImportBackupFile(): void {
+    importBackupInput?.click();
+  }
+
+  async function importBackupFile(
+    event: Event
+  ): Promise<void> {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+
+    input.value = "";
+
+    if (!file) return;
+
+    backupError = "";
+
+    try {
+      const parsed = JSON.parse(
+        await file.text()
+      ) as ContextBackupDocument;
+
+      const contextCount = Array.isArray(parsed.contexts)
+        ? parsed.contexts.length
+        : 0;
+
+      const confirmed = window.confirm(
+        `Import ${contextCount} context${contextCount === 1 ? "" : "s"} from ${file.name}?\n\nCurrent state will be replaced. When the native companion is available, a pre-restore safety snapshot is created first.`
+      );
+
+      if (!confirmed) return;
+
+      backupLoading = true;
+
+      const response = await send({
+        type: "backup:import",
+        backup: parsed
+      });
+
+      if (!response.ok) {
+        backupError = response.error;
+        return;
+      }
+
+      applyResponse(response);
+      toastMessage =
+        `Imported ${contextCount} context${contextCount === 1 ? "" : "s"} from JSON.`;
+      toastUndoKind = undefined;
+
+      if (canBackupContexts(desktopStatus)) {
+        await refreshBackupInfo();
+      }
+    } catch (cause) {
+      backupError =
+        cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      backupLoading = false;
+    }
+  }
+
+  async function restoreBackup(
+    backup: ContextBackupMetadata
+  ): Promise<void> {
+    const confirmed = window.confirm(
+      `Restore the backup from ${backupTimeLabel(backup)}?\n\nCurrent context state will be backed up first. Restored browser windows will remain shelved until you choose Restore.`
+    );
+
+    if (!confirmed) return;
+
+    backupLoading = true;
+    backupError = "";
+
+    try {
+      const response = await send({
+        type: "backup:restore",
+        backupId: backup.id
+      });
+
+      if (!response.ok) {
+        backupError = response.error;
+        return;
+      }
+
+      applyResponse(response);
+      toastMessage =
+        `Restored ${backup.contextCount} context${backup.contextCount === 1 ? "" : "s"} from backup.`;
+      toastUndoKind = undefined;
+
+      await refreshBackupInfo();
+    } catch (cause) {
+      backupError =
+        cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      backupLoading = false;
+    }
   }
 
   function companionStatusState(
@@ -801,6 +1087,7 @@
       : [...pinnedShelvedContexts, ...unpinnedShelvedContexts.slice(0, 6)];
   $: hiddenShelvedCount =
     Math.max(0, unpinnedShelvedContexts.length - 6);
+  $: latestBackup = backupList?.backups[0];
 
   onMount(() => {
     void (async () => {
@@ -877,6 +1164,126 @@
     {#if desktopStatus?.reason && companionStatusState(desktopStatus) !== "connected"}
       <div class="companion-reason" title={desktopStatus.reason}>
         {desktopStatus.reason}
+      </div>
+    {/if}
+  </div>
+
+  <div class="backup-panel">
+    <div class="backup-summary">
+      <button
+        class="backup-toggle"
+        title="Context backup and recovery"
+        on:click={() => (backupExpanded = !backupExpanded)}
+      >
+        <span class="backup-dot" class:ready={Boolean(latestBackup)}></span>
+        <span>
+          {#if !canBackupContexts(desktopStatus)}
+            Backups unavailable
+          {:else if backupLoading && !backupList}
+            Checking backups…
+          {:else if latestBackup}
+            Backup · {backupTimeLabel(latestBackup)}
+          {:else}
+            No context backup yet
+          {/if}
+        </span>
+        <span class="backup-chevron">{backupExpanded ? "▴" : "▾"}</span>
+      </button>
+
+      <button
+        class="backup-now"
+        disabled={!canBackupContexts(desktopStatus) || backupLoading}
+        title="Save a context backup now"
+        on:click={backupNow}
+      >
+        Backup now
+      </button>
+    </div>
+
+    {#if backupExpanded}
+      <div class="backup-details">
+        {#if !canBackupContexts(desktopStatus)}
+          <div class="backup-message">
+            Update/reinstall the native companion to protocol v3 to enable automatic backups.
+          </div>
+        {:else}
+          {#if backupList}
+            <div class="backup-path">
+              <span>Local</span>
+              <code title={backupList.settings.localBackupDirectory}>
+                {backupList.settings.localBackupDirectory}
+              </code>
+            </div>
+          {/if}
+
+          <label class="backup-secondary">
+            <span>Secondary/cloud-synced folder</span>
+            <div>
+              <input
+                bind:value={secondaryBackupDirectory}
+                placeholder="G:\My Drive\ContextTabManager"
+                disabled={backupLoading}
+              />
+              <button
+                disabled={backupLoading}
+                on:click={saveSecondaryBackupDirectory}
+              >Save</button>
+            </div>
+          </label>
+
+          <div class="backup-warning">
+            Backup JSON contains context names, tab titles/URLs and desktop-window references. Use a private or encrypted synced folder.
+          </div>
+
+          <div class="backup-portable-actions">
+            <button
+              disabled={backupLoading}
+              on:click={exportBackupFile}
+            >Export JSON</button>
+            <button
+              disabled={backupLoading}
+              on:click={chooseImportBackupFile}
+            >Import JSON</button>
+            <input
+              class="backup-file-input"
+              bind:this={importBackupInput}
+              type="file"
+              accept="application/json,.json"
+              on:change={importBackupFile}
+            />
+          </div>
+
+          {#if backupError}
+            <div class="backup-error">{backupError}</div>
+          {/if}
+
+          {#if backupList?.backups.length}
+            <div class="backup-history">
+              <strong>Recent restore points</strong>
+              {#each backupList.backups.slice(0, 6) as backup (backup.id)}
+                <div class="backup-row">
+                  <div>
+                    <span>{backupTimeLabel(backup)}</span>
+                    <small>
+                      {backup.browserTarget ?? "browser"} ·
+                      {backup.contextCount} contexts ·
+                      {backup.windowCount} windows ·
+                      {backup.tabCount} tabs
+                    </small>
+                  </div>
+                  <button
+                    disabled={backupLoading}
+                    on:click={() => restoreBackup(backup)}
+                  >Restore</button>
+                </div>
+              {/each}
+            </div>
+          {:else if !backupLoading}
+            <div class="backup-message">
+              No restore points have been created yet.
+            </div>
+          {/if}
+        {/if}
       </div>
     {/if}
   </div>
@@ -1533,6 +1940,224 @@
 
   .target-indicator {
     margin-top: 9px;
+  }
+
+  .backup-panel {
+    margin-top: 10px;
+    border: 1px solid #263d44;
+    border-radius: 8px;
+    background: #142126;
+  }
+
+  .backup-summary {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px;
+  }
+
+  .backup-toggle {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 5px;
+    overflow: hidden;
+    border: 0;
+    background: transparent;
+    color: #9fb1b5;
+    font-size: 10px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .backup-toggle > span:nth-child(2) {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .backup-dot {
+    width: 7px;
+    height: 7px;
+    flex: 0 0 7px;
+    border-radius: 999px;
+    background: #687b80;
+  }
+
+  .backup-dot.ready {
+    background: #55a88a;
+  }
+
+  .backup-chevron {
+    flex: 0 0 auto;
+    color: #71878c;
+  }
+
+  .backup-now,
+  .backup-details button {
+    border: 1px solid #35515a;
+    border-radius: 6px;
+    background: #1c3036;
+    color: #b8c9cc;
+    cursor: pointer;
+  }
+
+  .backup-now {
+    flex: 0 0 auto;
+    padding: 5px 7px;
+    font-size: 10px;
+  }
+
+  .backup-now:disabled,
+  .backup-details button:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  .backup-details {
+    display: grid;
+    gap: 9px;
+    padding: 9px;
+    border-top: 1px solid #263d44;
+  }
+
+  .backup-path {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 7px;
+    align-items: baseline;
+    color: #82979c;
+    font-size: 9px;
+  }
+
+  .backup-path code {
+    min-width: 0;
+    overflow: hidden;
+    color: #aebfc2;
+    font-family: inherit;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .backup-secondary {
+    display: grid;
+    gap: 5px;
+    color: #8fa2a7;
+    font-size: 9px;
+  }
+
+  .backup-secondary > div {
+    display: flex;
+    min-width: 0;
+    gap: 5px;
+  }
+
+  .backup-secondary input {
+    min-width: 0;
+    flex: 1;
+    padding: 6px 7px;
+    border: 1px solid #35515a;
+    border-radius: 6px;
+    outline: 0;
+    background: #101b1f;
+    color: #dce8ea;
+    font-size: 10px;
+  }
+
+  .backup-secondary input:focus {
+    border-color: #55b9c0;
+  }
+
+  .backup-secondary button {
+    padding: 5px 8px;
+    font-size: 10px;
+  }
+
+  .backup-portable-actions {
+    display: flex;
+    gap: 5px;
+  }
+
+  .backup-portable-actions button {
+    padding: 5px 8px;
+    font-size: 9px;
+  }
+
+  .backup-file-input {
+    display: none;
+  }
+
+  .backup-history {
+    display: grid;
+    gap: 5px;
+  }
+
+  .backup-history > strong {
+    color: #91a6aa;
+    font-size: 9px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .backup-row {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 7px;
+    border: 1px solid #263d44;
+    border-radius: 6px;
+    background: #101b1f;
+  }
+
+  .backup-row > div {
+    display: grid;
+    min-width: 0;
+    gap: 2px;
+  }
+
+  .backup-row span,
+  .backup-row small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .backup-row span {
+    color: #c7d6d9;
+    font-size: 10px;
+  }
+
+  .backup-row small {
+    color: #778d92;
+    font-size: 9px;
+  }
+
+  .backup-row button {
+    flex: 0 0 auto;
+    padding: 4px 7px;
+    font-size: 9px;
+  }
+
+  .backup-message,
+  .backup-error,
+  .backup-warning {
+    color: #83979c;
+    font-size: 9px;
+    line-height: 1.4;
+  }
+
+  .backup-warning {
+    color: #a99272;
+  }
+
+  .backup-error {
+    color: #dfa6a6;
   }
 
   .companion-indicator {

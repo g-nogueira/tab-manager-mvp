@@ -18,13 +18,14 @@ interface NativeHostStatus {
   platform: string;
   canPrepareDesktopForFocus: boolean;
   canEnumerateDesktopWindows?: boolean;
+  canBackupContexts?: boolean;
 }
 
 interface NativeHostListWindowsResult {
   windows: DesktopWindowCandidate[];
 }
 
-interface NativeHostResponse {
+export interface NativeHostResponse {
   ok: boolean;
   command: string;
   requestId?: string;
@@ -33,7 +34,7 @@ interface NativeHostResponse {
   error?: string;
 }
 
-async function sendNative(
+export async function sendNativeCompanion(
   command: string,
   requestId = createDiagnosticRequestId(),
   payload: Record<string, unknown> = {},
@@ -130,7 +131,7 @@ export async function getDesktopCompanionStatus(
   diagnosticInfo("native-client", "status:start", { requestId });
 
   try {
-    const response = await sendNative("getStatus", requestId);
+    const response = await sendNativeCompanion("getStatus", requestId);
 
     if (!response.ok || !response.status) {
       diagnosticWarn("native-client", "status:invalid-response", {
@@ -166,7 +167,9 @@ export async function getDesktopCompanionStatus(
       canPrepareDesktopForFocus:
         response.status.canPrepareDesktopForFocus,
       canEnumerateDesktopWindows:
-        response.status.canEnumerateDesktopWindows
+        response.status.canEnumerateDesktopWindows,
+      canBackupContexts:
+        response.status.canBackupContexts
     };
   } catch (error) {
     diagnosticError("native-client", "status:unavailable", error, {
@@ -188,7 +191,7 @@ export async function getDesktopCompanionStatus(
 export async function listDesktopWindows(
   requestId = createDiagnosticRequestId()
 ): Promise<DesktopWindowCandidate[]> {
-  const response = await sendNative(
+  const response = await sendNativeCompanion(
     "listDesktopWindows",
     requestId
   );
@@ -212,7 +215,7 @@ export async function prepareDesktopForFocus(
   diagnosticInfo("native-client", "focus:start", { requestId });
 
   try {
-    response = await sendNative(
+    response = await sendNativeCompanion(
       "prepareDesktopForFocus",
       requestId,
       { matchers }
