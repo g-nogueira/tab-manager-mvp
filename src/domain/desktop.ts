@@ -5,6 +5,7 @@ export interface DesktopCompanionStatus {
   healthy: boolean;
   canPrepareDesktopForFocus: boolean;
   canEnumerateDesktopWindows?: boolean;
+  canBackupContexts?: boolean;
   platform?: string;
   hostVersion?: string;
   protocolVersion?: number;
