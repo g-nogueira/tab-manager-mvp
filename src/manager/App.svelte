@@ -642,6 +642,43 @@
     return context.name ?? fallbackContextName(context);
   }
 
+  function quickContextCandidates(): BrowserContext[] {
+    const byId = new Map(
+      contexts.map((context) => [context.id, context] as const)
+    );
+    const currentId = contextNavigation.currentContextId;
+    const recent = contextNavigation.recentContextIds
+      .map((id) => byId.get(id))
+      .filter((context): context is BrowserContext => Boolean(context))
+      .filter((context) => context.id !== currentId);
+
+    const pinnedMissing = contexts
+      .filter(
+        (context) =>
+          context.pinned &&
+          context.id !== currentId &&
+          !recent.some((item) => item.id === context.id)
+      )
+      .sort(
+        (a, b) =>
+          (b.lastFocusedAt ?? b.updatedAt) -
+          (a.lastFocusedAt ?? a.updatedAt)
+      );
+
+    const combined = [
+      ...recent.slice(0, 5),
+      ...pinnedMissing,
+      ...recent.slice(5)
+    ];
+
+    return combined
+      .filter(
+        (context, index) =>
+          combined.findIndex((item) => item.id === context.id) === index
+      )
+      .slice(0, 8);
+  }
+
   function windowName(context: BrowserContext, window: ContextWindow): string {
     if (context.windows.length === 1) {
       return window.name ?? context.name ?? fallbackWindowName(window);
@@ -1162,14 +1199,7 @@
   $: hiddenShelvedCount =
     Math.max(0, unpinnedShelvedContexts.length - 6);
   $: latestBackup = backupList?.backups[0];
-  $: quickContexts = contextNavigation.recentContextIds
-    .map((id) => contexts.find((context) => context.id === id))
-    .filter((context): context is BrowserContext => Boolean(context))
-    .filter(
-      (context) =>
-        context.id !== contextNavigation.currentContextId
-    )
-    .slice(0, 8);
+  $: quickContexts = quickContextCandidates();
   $: if (
     quickContexts.length > 0 &&
     quickSelectedIndex >= quickContexts.length
@@ -1209,7 +1239,22 @@
 
     const handleChange = () => void refresh();
     const handleDocumentClick = () => closeMenus();
+    const handleStorageChange = (
+      changes: { [key: string]: chrome.storage.StorageChange },
+      areaName: string
+    ) => {
+      if (
+        areaName === "session" &&
+        quickSwitcherMode &&
+        changes.quickContextSwitcherCycleToken &&
+        quickContexts.length > 0
+      ) {
+        quickSelectedIndex =
+          (quickSelectedIndex + 1) % quickContexts.length;
+      }
+    };
 
+    chrome.storage.onChanged.addListener(handleStorageChange);
     chrome.tabs.onCreated.addListener(handleChange);
     chrome.tabs.onRemoved.addListener(handleChange);
     chrome.tabs.onUpdated.addListener(handleChange);
@@ -1219,6 +1264,7 @@
     document.addEventListener("click", handleDocumentClick);
 
     return () => {
+      chrome.storage.onChanged.removeListener(handleStorageChange);
       chrome.tabs.onCreated.removeListener(handleChange);
       chrome.tabs.onRemoved.removeListener(handleChange);
       chrome.tabs.onUpdated.removeListener(handleChange);
@@ -1236,7 +1282,7 @@
 
 <svelte:window on:keydown={handleQuickSwitcherKeydown} />
 
-<main>
+<main class:quick-mode={quickSwitcherMode}>
   {#if quickSwitcherMode}
     <section class="quick-switcher">
       <div class="quick-header">
@@ -2020,7 +2066,7 @@
     max-width: 100%;
     margin: 0;
     min-width: 0;
-    min-height: 560px;
+    min-height: 0;
     overflow-x: hidden;
     font-family:
       Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
@@ -2045,6 +2091,11 @@
     min-height: 560px;
     padding: 18px;
     overflow-x: hidden;
+  }
+
+  main.quick-mode {
+    min-height: 0;
+    padding: 14px;
   }
 
   .quick-switcher {
