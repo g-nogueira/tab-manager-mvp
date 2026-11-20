@@ -1265,6 +1265,7 @@
                   <div>
                     <span>{backupTimeLabel(backup)}</span>
                     <small>
+                      {backup.browserTarget ?? "browser"} ·
                       {backup.contextCount} contexts ·
                       {backup.windowCount} windows ·
                       {backup.tabCount} tabs
