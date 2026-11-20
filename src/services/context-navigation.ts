@@ -177,7 +177,7 @@ export async function focusPreviousContext(
   requestId = createDiagnosticRequestId()
 ): Promise<string> {
   const contexts = await loadContexts();
-  const validIds = new Set(availableContexts.map((context) => context.id));
+  const validIds = new Set(contexts.map((context) => context.id));
   const actualCurrent = await actualFocusedContextId();
 
   if (actualCurrent) {
