@@ -4,6 +4,14 @@ import {
   diagnosticInfo
 } from "../services/diagnostics";
 import {
+  CONTEXT_BACKUP_ALARM,
+  CONTEXT_BACKUP_DEBOUNCE_MS,
+  listContextBackups,
+  restoreContextBackup,
+  saveContextBackup,
+  setContextBackupSecondaryDirectory
+} from "../services/context-backup";
+import {
   getDesktopCompanionStatus,
   listDesktopWindows,
   prepareDesktopForFocus
@@ -76,6 +84,47 @@ function sync(windowId?: number, touchedFocus = false): void {
   if (windowId === undefined) return;
   void enqueue(() => syncWindow(windowId, { touchedFocus }));
 }
+
+function scheduleAutomaticContextBackup(): void {
+  chrome.alarms.create(
+    CONTEXT_BACKUP_ALARM,
+    {
+      when:
+        Date.now() +
+        CONTEXT_BACKUP_DEBOUNCE_MS
+    }
+  );
+}
+
+chrome.storage.onChanged.addListener(
+  (changes, areaName) => {
+    if (areaName !== "local") return;
+
+    if (
+      "contexts" in changes ||
+      "organizationTargetId" in changes
+    ) {
+      scheduleAutomaticContextBackup();
+    }
+  }
+);
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name !== CONTEXT_BACKUP_ALARM) return;
+
+  void enqueue(async () => {
+    try {
+      await ensureBootstrapped();
+      await saveContextBackup("automatic");
+    } catch (error) {
+      diagnosticError(
+        "background",
+        "context-backup:auto-failed",
+        error
+      );
+    }
+  });
+});
 
 if (__BROWSER_TARGET__ === "chrome") {
   chrome.windows.onBoundsChanged.addListener((window) => {
@@ -368,6 +417,46 @@ chrome.runtime.onMessage.addListener(
               contextId: request.contextId
             });
             break;
+          }
+
+          case "backup:list": {
+            const backupList =
+              await listContextBackups();
+
+            return {
+              ok: true,
+              backupList
+            } satisfies ManagerResponse;
+          }
+
+          case "backup:create": {
+            const backupSave =
+              await saveContextBackup("manual");
+
+            return {
+              ok: true,
+              backupSave
+            } satisfies ManagerResponse;
+          }
+
+          case "backup:restore":
+            await restoreContextBackup(
+              request.backupId
+            );
+            await reconcileAllWindows();
+            await cleanupShelvedContexts();
+            break;
+
+          case "backup:set-secondary-directory": {
+            const backupSettings =
+              await setContextBackupSecondaryDirectory(
+                request.directory
+              );
+
+            return {
+              ok: true,
+              backupSettings
+            } satisfies ManagerResponse;
           }
 
           case "contexts:add-desktop-window":
