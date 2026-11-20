@@ -6,10 +6,13 @@ import {
 import {
   CONTEXT_BACKUP_ALARM,
   CONTEXT_BACKUP_DEBOUNCE_MS,
+  applyContextBackupDocument,
+  createContextBackupDocument,
   listContextBackups,
   restoreContextBackup,
   saveContextBackup,
-  setContextBackupSecondaryDirectory
+  setContextBackupSecondaryDirectory,
+  validateContextBackupDocument
 } from "../services/context-backup";
 import {
   getDesktopCompanionStatus,
@@ -440,6 +443,45 @@ chrome.runtime.onMessage.addListener(
               backupSave
             } satisfies ManagerResponse;
           }
+
+          case "backup:export": {
+            const backupDocument =
+              await createContextBackupDocument("manual");
+
+            return {
+              ok: true,
+              backupDocument
+            } satisfies ManagerResponse;
+          }
+
+          case "backup:import":
+            validateContextBackupDocument(
+              request.backup
+            );
+
+            try {
+              const currentContexts =
+                await loadContexts();
+
+              if (currentContexts.length > 0) {
+                await saveContextBackup(
+                  "pre-restore"
+                );
+              }
+            } catch (error) {
+              diagnosticError(
+                "background",
+                "context-backup:import-safety-backup-failed",
+                error
+              );
+            }
+
+            await applyContextBackupDocument(
+              request.backup
+            );
+            await reconcileAllWindows();
+            await cleanupShelvedContexts();
+            break;
 
           case "backup:restore":
             await restoreContextBackup(
