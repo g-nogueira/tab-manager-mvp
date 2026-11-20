@@ -686,7 +686,7 @@
       ...recencyFallback
     ].filter(
       (context): context is BrowserContext =>
-        Boolean(context) &&
+        context !== undefined &&
         context.id !== currentId
     );
 
