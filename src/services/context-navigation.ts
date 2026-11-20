@@ -30,12 +30,14 @@ function sortByRecency(contexts: BrowserContext[]): BrowserContext[] {
 }
 
 export async function loadContextNavigationState(
-  contexts = await loadContexts()
+  contexts?: BrowserContext[]
 ): Promise<ContextNavigationState> {
+  const availableContexts =
+    contexts ?? (await loadContexts());
   const result = await chrome.storage.local.get(NAVIGATION_KEY);
   const raw = result[NAVIGATION_KEY] as Partial<ContextNavigationState> | undefined;
-  const validIds = new Set(contexts.map((context) => context.id));
-  const fallbackIds = sortByRecency(contexts).map((context) => context.id);
+  const validIds = new Set(availableContexts.map((context) => context.id));
+  const fallbackIds = sortByRecency(availableContexts).map((context) => context.id);
 
   const recentContextIds = unique([
     ...(Array.isArray(raw?.recentContextIds) ? raw!.recentContextIds! : []),
@@ -175,7 +177,7 @@ export async function focusPreviousContext(
   requestId = createDiagnosticRequestId()
 ): Promise<string> {
   const contexts = await loadContexts();
-  const validIds = new Set(contexts.map((context) => context.id));
+  const validIds = new Set(availableContexts.map((context) => context.id));
   const actualCurrent = await actualFocusedContextId();
 
   if (actualCurrent) {
