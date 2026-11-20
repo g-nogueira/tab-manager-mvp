@@ -137,32 +137,41 @@ public sealed class ContextBackupService
             secondaryError);
     }
 
-    public Task<ListContextBackupsResult> ListAsync(
+    public async Task<ListContextBackupsResult> ListAsync(
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         Directory.CreateDirectory(BackupDirectory);
 
-        var backups = Directory
-            .EnumerateFiles(
-                BackupDirectory,
-                "context-backup-*.json",
-                SearchOption.TopDirectoryOnly)
-            .Select(TryReadMetadata)
-            .Where(metadata => metadata is not null)
-            .Cast<ContextBackupMetadata>()
-            .OrderByDescending(metadata => metadata.CreatedAt)
-            .Take(50)
-            .ToArray();
+        var settings = await GetSettingsAsync(
+            cancellationToken);
 
-        return GetSettingsAsync(cancellationToken)
-            .ContinueWith(
-                task => new ListContextBackupsResult(
-                    backups,
-                    task.Result),
-                cancellationToken,
-                TaskContinuationOptions.ExecuteSynchronously,
-                TaskScheduler.Default);
+        var backups =
+            new Dictionary<string, ContextBackupMetadata>(
+                StringComparer.OrdinalIgnoreCase);
+
+        AddBackupMetadataFromDirectory(
+            BackupDirectory,
+            backups);
+
+        if (
+            !string.IsNullOrWhiteSpace(
+                settings.SecondaryBackupDirectory) &&
+            Directory.Exists(
+                settings.SecondaryBackupDirectory))
+        {
+            AddBackupMetadataFromDirectory(
+                settings.SecondaryBackupDirectory,
+                backups);
+        }
+
+        return new ListContextBackupsResult(
+            backups.Values
+                .OrderByDescending(
+                    metadata => metadata.CreatedAt)
+                .Take(50)
+                .ToArray(),
+            settings);
     }
 
     public async Task<ReadContextBackupResult> ReadAsync(
@@ -180,26 +189,45 @@ public sealed class ContextBackupService
                 "Invalid backup identifier.");
         }
 
-        var path = Path.Combine(
-            BackupDirectory,
-            backupId + ".json");
+        var settings = await GetSettingsAsync(
+            cancellationToken);
 
-        if (!File.Exists(path))
+        var candidatePaths = new List<string>
         {
-            throw new FileNotFoundException(
-                "Context backup was not found.",
-                path);
+            Path.Combine(
+                BackupDirectory,
+                backupId + ".json")
+        };
+
+        if (!string.IsNullOrWhiteSpace(
+                settings.SecondaryBackupDirectory))
+        {
+            candidatePaths.Add(
+                Path.Combine(
+                    settings.SecondaryBackupDirectory,
+                    backupId + ".json"));
         }
 
-        await using var stream = File.OpenRead(path);
-        using var document = await JsonDocument.ParseAsync(
-            stream,
-            cancellationToken: cancellationToken);
+        foreach (var path in candidatePaths)
+        {
+            if (!File.Exists(path))
+            {
+                continue;
+            }
 
-        ValidateBackup(document.RootElement);
+            await using var stream = File.OpenRead(path);
+            using var document = await JsonDocument.ParseAsync(
+                stream,
+                cancellationToken: cancellationToken);
 
-        return new ReadContextBackupResult(
-            document.RootElement.Clone());
+            ValidateBackup(document.RootElement);
+
+            return new ReadContextBackupResult(
+                document.RootElement.Clone());
+        }
+
+        throw new FileNotFoundException(
+            "Context backup was not found in the local or configured secondary backup directory.");
     }
 
     public async Task<ContextBackupSettings> GetSettingsAsync(
@@ -337,6 +365,29 @@ public sealed class ContextBackupService
             {
                 File.Delete(temporary);
             }
+        }
+    }
+
+    private static void AddBackupMetadataFromDirectory(
+        string directory,
+        IDictionary<string, ContextBackupMetadata> backups)
+    {
+        foreach (
+            var path in Directory.EnumerateFiles(
+                directory,
+                "context-backup-*.json",
+                SearchOption.TopDirectoryOnly))
+        {
+            var metadata = TryReadMetadata(path);
+
+            if (metadata is null)
+            {
+                continue;
+            }
+
+            backups.TryAdd(
+                metadata.Id,
+                metadata);
         }
     }
 
