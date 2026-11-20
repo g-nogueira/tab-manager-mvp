@@ -662,15 +662,28 @@
         (a.lastFocusedAt ?? a.updatedAt)
     );
 
-    const pinned = recencyFallback.filter(
-      (context) => context.pinned
+    const recentCandidates = recent.filter(
+      (context) =>
+        context.id !== currentId &&
+        context.id !== previous?.id
+    );
+
+    const pinnedMissing = recencyFallback.filter(
+      (context) =>
+        context.pinned &&
+        context.id !== currentId &&
+        context.id !== previous?.id &&
+        !recentCandidates.some(
+          (item) => item.id === context.id
+        )
     );
 
     const combined = [
       previous,
-      ...recent,
-      ...recencyFallback,
-      ...pinned
+      ...recentCandidates.slice(0, 4),
+      ...pinnedMissing,
+      ...recentCandidates.slice(4),
+      ...recencyFallback
     ].filter(
       (context): context is BrowserContext =>
         Boolean(context) &&
