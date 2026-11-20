@@ -4,6 +4,12 @@ import {
   diagnosticInfo
 } from "../services/diagnostics";
 import {
+  focusContextWithNavigation,
+  focusPreviousContext,
+  loadContextNavigationState,
+  recordFocusedBrowserWindow
+} from "../services/context-navigation";
+import {
   CONTEXT_BACKUP_ALARM,
   CONTEXT_BACKUP_DEBOUNCE_MS,
   applyContextBackupDocument,
@@ -16,8 +22,7 @@ import {
 } from "../services/context-backup";
 import {
   getDesktopCompanionStatus,
-  listDesktopWindows,
-  prepareDesktopForFocus
+  listDesktopWindows
 } from "../services/desktop-companion-client";
 import {
   addDesktopWindowToContext,
@@ -153,7 +158,9 @@ async function managerState(): Promise<ManagerResponse> {
     ok: true,
     contexts,
     organizationTargetId,
-    canUndoWindowMove: Boolean(await loadUndoWindowMove())
+    canUndoWindowMove: Boolean(await loadUndoWindowMove()),
+    contextNavigation:
+      await loadContextNavigationState(contexts)
   };
 }
 
@@ -201,6 +208,7 @@ chrome.windows.onFocusChanged.addListener((windowId) => {
 
   void enqueue(async () => {
     await syncWindow(windowId, { touchedFocus: true });
+    await recordFocusedBrowserWindow(windowId);
     await rebuildTabContextMenus(windowId);
   });
 });
@@ -289,6 +297,47 @@ chrome.tabs.onAttached.addListener((tabId, attachInfo) => {
 });
 
 chrome.tabs.onActivated.addListener((activeInfo) => sync(activeInfo.windowId));
+
+const QUICK_SWITCHER_SESSION_KEY = "quickContextSwitcherRequestedAt";
+const QUICK_SWITCHER_CYCLE_KEY = "quickContextSwitcherCycleToken";
+
+chrome.commands.onCommand.addListener((command) => {
+  if (command === "focus-previous-context") {
+    void enqueue(async () => {
+      try {
+        await ensureBootstrapped();
+        await focusPreviousContext();
+      } catch (error) {
+        diagnosticError(
+          "navigation",
+          "focus-previous:failed",
+          error
+        );
+      }
+    });
+
+    return;
+  }
+
+  if (command === "open-quick-context-switcher") {
+    void (async () => {
+      try {
+        await chrome.storage.session.set({
+          [QUICK_SWITCHER_SESSION_KEY]: Date.now(),
+          [QUICK_SWITCHER_CYCLE_KEY]: crypto.randomUUID()
+        });
+
+        await chrome.action.openPopup();
+      } catch (error) {
+        diagnosticError(
+          "navigation",
+          "quick-switcher:open-failed",
+          error
+        );
+      }
+    })();
+  }
+});
 
 chrome.runtime.onMessage.addListener(
   (
@@ -394,35 +443,12 @@ chrome.runtime.onMessage.addListener(
             await switchContext(request.contextId);
             break;
 
-          case "contexts:focus": {
-            const requestId = request.requestId;
-            const contexts = await loadContexts();
-            const context = contexts.find(
-              (item) => item.id === request.contextId
+          case "contexts:focus":
+            await focusContextWithNavigation(
+              request.contextId,
+              request.requestId
             );
-
-            if (!context) {
-              throw new Error("Context not found");
-            }
-
-            diagnosticInfo("background", "desktop-focus:received", {
-              requestId,
-              contextId: request.contextId,
-              desktopWindowCount: context.desktopWindows.length
-            });
-
-            await prepareDesktopForFocus(
-              context.desktopWindows.map((window) => window.matcher),
-              requestId
-            );
-            await switchContext(request.contextId);
-
-            diagnosticInfo("background", "desktop-focus:completed", {
-              requestId,
-              contextId: request.contextId
-            });
             break;
-          }
 
           case "backup:list": {
             const backupList =

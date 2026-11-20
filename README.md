@@ -431,3 +431,70 @@ Then rebuild/reload the extension.
 Architecture: [docs/architecture/context-backups.md](docs/architecture/context-backups.md)
 
 ADR: [ADR 0006 — Native versioned context backups](docs/adr/0006-native-versioned-context-backups.md)
+
+
+## Fast context navigation
+
+The full popup is intended for context organization. For frequent task switching, the extension also provides two keyboard-first navigation commands.
+
+### Previous context
+
+Default:
+
+```text
+Alt+Shift+Q
+```
+
+Runs full **Focus** on the previously used context. Press it again to return to the context you came from.
+
+Typical flow:
+
+```text
+CXP-123
+  ↓ Alt+Shift+Q
+CXP-1234
+  ↓ Alt+Shift+Q
+CXP-123
+```
+
+### Quick switcher
+
+Default:
+
+```text
+Alt+Shift+W
+```
+
+Opens a compact list of recent contexts rather than the full manager.
+
+Controls:
+
+- press the shortcut repeatedly to advance the highlighted context while the switcher remains open;
+- ↑ / ↓ to select;
+- Enter to focus;
+- 1–8 for direct selection;
+- Esc to close.
+
+Pinned shelved contexts are included when they are not already among the leading recent contexts.
+
+The quick-switch list uses separate MRU navigation state and does **not** change the normal popup's context ordering.
+
+### Customize shortcuts
+
+Firefox:
+
+```text
+about:addons
+→ Extensions
+→ Manage Extension Shortcuts
+```
+
+Chrome/Chromium:
+
+```text
+chrome://extensions/shortcuts
+```
+
+This MVP uses browser extension shortcuts, so the browser must be the active application. Global Windows shortcuts are a later native-companion feature.
+
+Architecture: [docs/architecture/fast-context-navigation.md](docs/architecture/fast-context-navigation.md)
