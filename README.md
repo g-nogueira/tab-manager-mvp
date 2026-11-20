@@ -326,7 +326,7 @@ Architecture and decision record:
 - [Desktop windows in contexts](docs/architecture/desktop-context-windows.md)
 - [ADR 0005 — semantic desktop-window identity](docs/adr/0005-semantic-desktop-window-identity.md)
 
-This feature requires the protocol-v2 native companion. After pulling the feature branch, reinstall the Windows companion before testing:
+Desktop-window membership requires the native companion; the current release uses protocol v3. After pulling this branch, reinstall the Windows companion before testing:
 
 ```powershell
 # Firefox
