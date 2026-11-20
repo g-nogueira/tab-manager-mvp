@@ -380,7 +380,7 @@ or an appropriate private OneDrive/local sync path.
 
 The native companion always writes the LocalAppData snapshot first. The secondary copy is best-effort: a disconnected sync drive does not invalidate the local backup.
 
-Snapshot discovery merges the local and configured secondary directories. After losing local AppData, reinstall the companion/extension, configure the synced folder again, and its existing restore points become available directly.
+Snapshot discovery merges the local and configured secondary directories. Restore points show whether they came from Chrome or Firefox, and the portable format can be deliberately restored across browsers. After losing local AppData, reinstall the companion/extension, configure the synced folder again, and its existing restore points become available directly.
 
 The companion does not authenticate to Google Drive/OneDrive itself and does not implement bidirectional synchronization.
 
