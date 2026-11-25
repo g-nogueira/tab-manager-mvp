@@ -345,7 +345,7 @@
   async function backupNow(): Promise<void> {
     if (!canBackupContexts(desktopStatus)) {
       backupError =
-        "Automatic backups require native companion protocol v3.";
+        "Automatic backups require native companion protocol v4.";
       return;
     }
 
@@ -1508,7 +1508,7 @@
       <div class="backup-details">
         {#if !canBackupContexts(desktopStatus)}
           <div class="backup-message">
-            Update/reinstall the native companion to protocol v3 to enable automatic backups.
+            Update/reinstall the native companion to protocol v4 to enable automatic backups.
           </div>
         {:else}
           {#if backupList}
