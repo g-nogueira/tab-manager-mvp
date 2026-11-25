@@ -27,6 +27,9 @@ export interface ContextBackupMetadata {
 export interface ContextBackupSettings {
   localBackupDirectory: string;
   secondaryBackupDirectory?: string;
+  recentSnapshotCount: number;
+  dailyRetentionDays: number;
+  weeklyRetentionWeeks: number;
 }
 
 export interface ContextBackupSaveResult {
