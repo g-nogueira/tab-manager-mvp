@@ -357,7 +357,7 @@ Local snapshots are stored under:
 %LOCALAPPDATA%\ContextTabManager\Backups
 ```
 
-Retention keeps the 20 most recent snapshots, 7 additional daily restore points and 4 additional weekly restore points.
+Default retention keeps the 20 most recent snapshots, 30 additional daily restore points and 12 additional weekly restore points. These values are configurable from the Backups panel.
 
 The popup **Backups** panel provides:
 
