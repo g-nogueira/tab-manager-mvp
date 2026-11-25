@@ -321,11 +321,11 @@
       secondaryBackupDirectory =
         backupList.settings.secondaryBackupDirectory ?? "";
       recentSnapshotCount =
-        backupList.settings.recentSnapshotCount;
+        backupList.settings.recentSnapshotCount ?? 20;
       dailyRetentionDays =
-        backupList.settings.dailyRetentionDays;
+        backupList.settings.dailyRetentionDays ?? 30;
       weeklyRetentionWeeks =
-        backupList.settings.weeklyRetentionWeeks;
+        backupList.settings.weeklyRetentionWeeks ?? 12;
     } catch (cause) {
       backupError =
         cause instanceof Error ? cause.message : String(cause);
