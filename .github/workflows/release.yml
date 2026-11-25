@@ -1,0 +1,137 @@
+name: Release Extension
+
+on:
+  pull_request:
+    types:
+      - closed
+    branches:
+      - master
+
+permissions:
+  contents: write
+
+concurrency:
+  group: extension-release-master
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: ${{ github.event.pull_request.merged == true }}
+    runs-on: ubuntu-latest
+    env:
+      WEB_EXT_API_KEY: ${{ secrets.WEB_EXT_API_KEY }}
+      WEB_EXT_API_SECRET: ${{ secrets.WEB_EXT_API_SECRET }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout merged master
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: master
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Install dependencies
+        run: npm install --package-lock=false --no-audit --no-fund
+
+      - name: Validate AMO credentials
+        shell: bash
+        run: |
+          if [ -z "$WEB_EXT_API_KEY" ] || [ -z "$WEB_EXT_API_SECRET" ]; then
+            echo "::error::Configure WEB_EXT_API_KEY and WEB_EXT_API_SECRET as repository secrets before merging to master."
+            exit 1
+          fi
+
+      - name: Read latest release version
+        shell: bash
+        run: |
+          latest_tag="$(git tag --list "v[0-9]*" --sort=-v:refname | head -n 1)"
+          if [ -n "$latest_tag" ]; then
+            echo "RELEASE_VERSION_FLOOR=${latest_tag#v}" >> "$GITHUB_ENV"
+            echo "Latest release tag: $latest_tag"
+          else
+            echo "No release tag yet; using .release-version / manifest versions as the floor."
+          fi
+
+      - name: Bump patch version
+        id: version
+        run: node scripts/bump-release-version.mjs
+
+      - name: Validate source
+        run: npm run check
+
+      - name: Build Chrome extension
+        run: npm run build:chrome
+
+      - name: Build Firefox extension
+        run: npm run build:firefox
+
+      - name: Lint Firefox extension
+        run: npm run lint:firefox
+
+      - name: Build native companion
+        run: dotnet build native/ContextTabManager.NativeHost/ContextTabManager.NativeHost.csproj --configuration Release
+
+      - name: Create local release commit
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .release-version package.json manifests/firefox.json manifests/chrome.json
+          if [ -f package-lock.json ]; then git add package-lock.json; fi
+          git commit -m "chore(release): v${{ steps.version.outputs.version }}"
+
+      - name: Package Firefox extension
+        run: node scripts/package-firefox.mjs
+
+      - name: Package Firefox source
+        run: node scripts/package-firefox-source.mjs
+
+      - name: Sign Firefox extension
+        run: node scripts/sign-firefox.mjs
+
+      - name: Package Chrome extension
+        shell: bash
+        run: |
+          mkdir -p artifacts/chrome
+          (
+            cd dist
+            zip -qr "../artifacts/chrome/context-tab-manager-${{ steps.version.outputs.version }}-chrome.zip" .
+          )
+
+      - name: Tag release commit
+        run: git tag "${{ steps.version.outputs.tag }}"
+
+      - name: Push release tag
+        run: git push origin "${{ steps.version.outputs.tag }}"
+
+      - name: Create GitHub Release
+        shell: bash
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            artifacts/firefox/*.xpi \
+            "artifacts/firefox/context-tab-manager-${{ steps.version.outputs.version }}.zip" \
+            "artifacts/firefox/context-tab-manager-${{ steps.version.outputs.version }}-source.zip" \
+            "artifacts/chrome/context-tab-manager-${{ steps.version.outputs.version }}-chrome.zip" \
+            --title "Context Tab Manager ${{ steps.version.outputs.tag }}" \
+            --generate-notes
+
+      - name: Upload release artifacts to workflow run
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-release-${{ steps.version.outputs.version }}
+          path: |
+            artifacts/firefox/*.xpi
+            artifacts/firefox/context-tab-manager-${{ steps.version.outputs.version }}.zip
+            artifacts/firefox/context-tab-manager-${{ steps.version.outputs.version }}-source.zip
+            artifacts/chrome/context-tab-manager-${{ steps.version.outputs.version }}-chrome.zip
+          if-no-files-found: error
