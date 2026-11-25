@@ -513,3 +513,55 @@ Setting daily or weekly retention to `0` disables that tier.
 Automatic backups are change-driven and currently scheduled about 3 seconds after context state changes. The recent tier can therefore fill quickly during active use; the daily/weekly tiers preserve longer recovery history.
 
 The popup initially shows the six newest restore points. Use **Show older** to browse every retained restore point returned by the companion.
+
+
+## Automatic GitHub releases
+
+Every pull request merged into the repository's default branch (`master`) triggers `.github/workflows/release.yml`.
+
+The workflow:
+
+1. checks out the merged `master`;
+2. reads the highest known release version from:
+   - existing browser/package versions;
+   - `.release-version`;
+   - the latest `v*.*.*` Git tag;
+3. increments the patch version;
+4. runs TypeScript/Svelte checks;
+5. builds Chrome and Firefox;
+6. runs Mozilla `web-ext lint`;
+7. builds the .NET native companion as a validation step;
+8. creates a local release commit containing the exact version that will be signed;
+9. packages Firefox and its source archive;
+10. signs Firefox through AMO as an unlisted extension using `WEB_EXT_API_KEY` and `WEB_EXT_API_SECRET`;
+11. packages the Chrome extension;
+12. tags the local release commit as `v<version>`;
+13. pushes the tag and creates a GitHub Release with generated release notes.
+
+Published release assets include:
+
+```text
+<signed Firefox>.xpi
+context-tab-manager-<version>.zip
+context-tab-manager-<version>-source.zip
+context-tab-manager-<version>-chrome.zip
+```
+
+The workflow also uploads the same artifacts to the Actions run.
+
+### Version source
+
+`.release-version` is a bootstrap floor, currently seeded to `0.4.0` because AMO has already signed Firefox 0.4.0 from the earlier manual workflow.
+
+After the first automated release, Git tags are the authoritative monotonic release history. This avoids publishing an older semantic version even if an old feature branch contains stale manifest/package versions.
+
+Release commits are tagged but are not pushed back to `master`; the merged source commit remains the branch history, while each release tag points to the exact version-adjusted source tree used to build/sign that release.
+
+### Required repository secrets
+
+```text
+WEB_EXT_API_KEY
+WEB_EXT_API_SECRET
+```
+
+These are the AMO JWT issuer and JWT secret respectively.
