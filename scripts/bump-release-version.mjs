@@ -54,6 +54,12 @@ if (existsSync(releaseVersionPath)) {
   );
 }
 
+if (process.env.RELEASE_VERSION_FLOOR) {
+  knownVersions.push(
+    process.env.RELEASE_VERSION_FLOOR.trim()
+  );
+}
+
 const highest = knownVersions
   .map((version) => ({
     raw: version,
