@@ -9,7 +9,10 @@ public sealed record NativeCommandRequest(
     IReadOnlyList<DesktopWindowMatcher>? Matchers = null,
     JsonElement? Backup = null,
     string? BackupId = null,
-    string? SecondaryBackupDirectory = null);
+    string? SecondaryBackupDirectory = null,
+    int? RecentSnapshotCount = null,
+    int? DailyRetentionDays = null,
+    int? WeeklyRetentionWeeks = null);
 
 public sealed record NativeResponse(
     bool Ok,
