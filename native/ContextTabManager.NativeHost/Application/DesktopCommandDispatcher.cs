@@ -62,6 +62,11 @@ public sealed class DesktopCommandDispatcher(
                             request.SecondaryBackupDirectory,
                             cancellationToken)),
 
+            "setContextBackupRetention" =>
+                await SetContextBackupRetentionAsync(
+                    request,
+                    cancellationToken),
+
             _ => NativeResponse.Failure(
                 request.Command,
                 $"Unsupported command: {request.Command}",
@@ -81,11 +86,38 @@ public sealed class DesktopCommandDispatcher(
 
         return new DesktopCompanionStatus(
             version,
-            ProtocolVersion: 3,
+            ProtocolVersion: 4,
             capabilities.Platform,
             capabilities.CanPrepareDesktopForFocus,
             capabilities.CanEnumerateDesktopWindows,
             CanBackupContexts: true);
+    }
+
+    private async Task<NativeResponse> SetContextBackupRetentionAsync(
+        NativeCommandRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (
+            request.RecentSnapshotCount is null ||
+            request.DailyRetentionDays is null ||
+            request.WeeklyRetentionWeeks is null)
+        {
+            return NativeResponse.Failure(
+                request.Command,
+                "All retention settings are required.",
+                request.RequestId);
+        }
+
+        var settings = await backupService.SetRetentionAsync(
+            request.RecentSnapshotCount.Value,
+            request.DailyRetentionDays.Value,
+            request.WeeklyRetentionWeeks.Value,
+            cancellationToken);
+
+        return NativeResponse.Success(
+            request.Command,
+            request.RequestId,
+            result: settings);
     }
 
     private async Task<NativeResponse> BackupContextStateAsync(
