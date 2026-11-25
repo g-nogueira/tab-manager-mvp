@@ -17,6 +17,7 @@ import {
   listContextBackups,
   restoreContextBackup,
   saveContextBackup,
+  setContextBackupRetention,
   setContextBackupSecondaryDirectory,
   validateContextBackupDocument
 } from "../services/context-backup";
@@ -521,6 +522,20 @@ chrome.runtime.onMessage.addListener(
             const backupSettings =
               await setContextBackupSecondaryDirectory(
                 request.directory
+              );
+
+            return {
+              ok: true,
+              backupSettings
+            } satisfies ManagerResponse;
+          }
+
+          case "backup:set-retention": {
+            const backupSettings =
+              await setContextBackupRetention(
+                request.recentSnapshotCount,
+                request.dailyRetentionDays,
+                request.weeklyRetentionWeeks
               );
 
             return {
