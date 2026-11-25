@@ -171,6 +171,38 @@ export async function setContextBackupSecondaryDirectory(
   return settings;
 }
 
+export async function setContextBackupRetention(
+  recentSnapshotCount: number,
+  dailyRetentionDays: number,
+  weeklyRetentionWeeks: number,
+  requestId = createDiagnosticRequestId()
+): Promise<ContextBackupSettings> {
+  const response = await sendNativeCompanion(
+    "setContextBackupRetention",
+    requestId,
+    {
+      recentSnapshotCount,
+      dailyRetentionDays,
+      weeklyRetentionWeeks
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      response.error ?? "Native companion could not update backup retention"
+    );
+  }
+
+  const settings =
+    response.result as ContextBackupSettings | undefined;
+
+  if (!settings?.localBackupDirectory) {
+    throw new Error("Native companion returned invalid backup settings");
+  }
+
+  return settings;
+}
+
 export async function applyContextBackupDocument(
   backup: ContextBackupDocument,
   requestId = createDiagnosticRequestId()
