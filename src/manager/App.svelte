@@ -51,6 +51,11 @@
   let backupLoading = false;
   let backupError = "";
   let secondaryBackupDirectory = "";
+  let recentSnapshotCount = 20;
+  let dailyRetentionDays = 30;
+  let weeklyRetentionWeeks = 12;
+  let showAllBackups = false;
+  let displayedBackups: ContextBackupMetadata[] = [];
   let importBackupInput: HTMLInputElement;
 
   async function send(request: ManagerRequest): Promise<ManagerResponse> {
@@ -315,6 +320,12 @@
       backupList = response.backupList;
       secondaryBackupDirectory =
         backupList.settings.secondaryBackupDirectory ?? "";
+      recentSnapshotCount =
+        backupList.settings.recentSnapshotCount;
+      dailyRetentionDays =
+        backupList.settings.dailyRetentionDays;
+      weeklyRetentionWeeks =
+        backupList.settings.weeklyRetentionWeeks;
     } catch (cause) {
       backupError =
         cause instanceof Error ? cause.message : String(cause);
@@ -390,6 +401,66 @@
       toastMessage = secondaryBackupDirectory
         ? "Secondary backup folder saved."
         : "Secondary backup folder disabled.";
+      toastUndoKind = undefined;
+
+      await refreshBackupInfo();
+    } catch (cause) {
+      backupError =
+        cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      backupLoading = false;
+    }
+  }
+
+  async function saveBackupRetention(): Promise<void> {
+    if (!canBackupContexts(desktopStatus)) return;
+
+    if (
+      recentSnapshotCount < 1 ||
+      recentSnapshotCount > 500 ||
+      dailyRetentionDays < 0 ||
+      dailyRetentionDays > 365 ||
+      weeklyRetentionWeeks < 0 ||
+      weeklyRetentionWeeks > 104
+    ) {
+      backupError =
+        "Retention must be: recent 1–500, daily 0–365 days, weekly 0–104 weeks.";
+      return;
+    }
+
+    backupLoading = true;
+    backupError = "";
+
+    try {
+      const response = await send({
+        type: "backup:set-retention",
+        recentSnapshotCount,
+        dailyRetentionDays,
+        weeklyRetentionWeeks
+      });
+
+      if (!response.ok || !response.backupSettings) {
+        backupError = response.ok
+          ? "Native companion did not return backup settings."
+          : response.error;
+        return;
+      }
+
+      recentSnapshotCount =
+        response.backupSettings.recentSnapshotCount;
+      dailyRetentionDays =
+        response.backupSettings.dailyRetentionDays;
+      weeklyRetentionWeeks =
+        response.backupSettings.weeklyRetentionWeeks;
+
+      if (backupList) {
+        backupList = {
+          ...backupList,
+          settings: response.backupSettings
+        };
+      }
+
+      toastMessage = "Backup retention updated.";
       toastUndoKind = undefined;
 
       await refreshBackupInfo();
@@ -1088,6 +1159,12 @@
   $: hiddenShelvedCount =
     Math.max(0, unpinnedShelvedContexts.length - 6);
   $: latestBackup = backupList?.backups[0];
+  $: displayedBackups =
+    backupList?.backups
+      ? showAllBackups
+        ? backupList.backups
+        : backupList.backups.slice(0, 6)
+      : [];
 
   onMount(() => {
     void (async () => {
@@ -1231,6 +1308,49 @@
             </div>
           </label>
 
+          <div class="backup-retention">
+            <span>Retention</span>
+            <div class="backup-retention-grid">
+              <label>
+                <span>Recent</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="500"
+                  bind:value={recentSnapshotCount}
+                  disabled={backupLoading}
+                />
+              </label>
+              <label>
+                <span>Daily days</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="365"
+                  bind:value={dailyRetentionDays}
+                  disabled={backupLoading}
+                />
+              </label>
+              <label>
+                <span>Weekly weeks</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="104"
+                  bind:value={weeklyRetentionWeeks}
+                  disabled={backupLoading}
+                />
+              </label>
+              <button
+                disabled={backupLoading}
+                on:click={saveBackupRetention}
+              >Save retention</button>
+            </div>
+            <small>
+              Keeps the newest snapshots, plus one restore point per day and per week.
+            </small>
+          </div>
+
           <div class="backup-warning">
             Backup JSON contains context names, tab titles/URLs and desktop-window references. Use a private or encrypted synced folder.
           </div>
@@ -1259,8 +1379,8 @@
 
           {#if backupList?.backups.length}
             <div class="backup-history">
-              <strong>Recent restore points</strong>
-              {#each backupList.backups.slice(0, 6) as backup (backup.id)}
+              <strong>Restore points</strong>
+              {#each displayedBackups as backup (backup.id)}
                 <div class="backup-row">
                   <div>
                     <span>{backupTimeLabel(backup)}</span>
@@ -2077,6 +2197,49 @@
     font-size: 10px;
   }
 
+  .backup-retention {
+    display: grid;
+    gap: 5px;
+    color: #8fa2a7;
+    font-size: 9px;
+  }
+
+  .backup-retention-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 5px;
+  }
+
+  .backup-retention-grid label {
+    display: grid;
+    min-width: 0;
+    gap: 3px;
+  }
+
+  .backup-retention-grid input {
+    min-width: 0;
+    width: 100%;
+    padding: 5px 6px;
+    border: 1px solid #35515a;
+    border-radius: 6px;
+    outline: 0;
+    background: #101b1f;
+    color: #dce8ea;
+    font-size: 10px;
+  }
+
+  .backup-retention-grid button {
+    grid-column: 1 / -1;
+    padding: 5px 8px;
+    font-size: 9px;
+  }
+
+  .backup-retention small {
+    color: #71878c;
+    font-size: 8px;
+    line-height: 1.35;
+  }
+
   .backup-portable-actions {
     display: flex;
     gap: 5px;
@@ -2101,6 +2264,13 @@
     font-size: 9px;
     letter-spacing: 0.04em;
     text-transform: uppercase;
+  }
+
+  .backup-history-toggle {
+    justify-self: center;
+    margin-top: 3px;
+    padding: 5px 8px;
+    font-size: 9px;
   }
 
   .backup-row {
