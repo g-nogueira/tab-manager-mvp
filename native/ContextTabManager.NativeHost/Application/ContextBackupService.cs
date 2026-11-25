@@ -16,7 +16,10 @@ public sealed record ContextBackupMetadata(
 
 public sealed record ContextBackupSettings(
     string LocalBackupDirectory,
-    string? SecondaryBackupDirectory);
+    string? SecondaryBackupDirectory,
+    int RecentSnapshotCount,
+    int DailyRetentionDays,
+    int WeeklyRetentionWeeks);
 
 public sealed record SaveContextBackupResult(
     ContextBackupMetadata Backup,
@@ -34,9 +37,12 @@ public sealed record ReadContextBackupResult(
 public sealed class ContextBackupService
 {
     private const int SchemaVersion = 1;
-    private const int ImmediateRetentionCount = 20;
-    private const int DailyRetentionCount = 7;
-    private const int WeeklyRetentionCount = 4;
+    private const int DefaultRecentSnapshotCount = 20;
+    private const int DefaultDailyRetentionDays = 30;
+    private const int DefaultWeeklyRetentionWeeks = 12;
+    private const int MaxRecentSnapshotCount = 500;
+    private const int MaxDailyRetentionDays = 365;
+    private const int MaxWeeklyRetentionWeeks = 104;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -64,6 +70,9 @@ public sealed class ContextBackupService
 
         Directory.CreateDirectory(BackupDirectory);
 
+        var settings = await GetSettingsAsync(
+            cancellationToken);
+
         var now = DateTimeOffset.UtcNow;
         var id =
             $"context-backup-{now:yyyyMMddTHHmmssfffZ}-{Guid.NewGuid():N}";
@@ -85,10 +94,9 @@ public sealed class ContextBackupService
             json,
             cancellationToken);
 
-        PruneDirectory(BackupDirectory);
-
-        var settings = await GetSettingsAsync(
-            cancellationToken);
+        PruneDirectory(
+            BackupDirectory,
+            settings);
 
         var secondaryCopyWritten = false;
         string? secondaryError = null;
@@ -116,7 +124,8 @@ public sealed class ContextBackupService
                     cancellationToken);
 
                 PruneDirectory(
-                    settings.SecondaryBackupDirectory);
+                    settings.SecondaryBackupDirectory,
+                    settings);
 
                 secondaryCopyWritten = true;
             }
@@ -170,7 +179,6 @@ public sealed class ContextBackupService
             backups.Values
                 .OrderByDescending(
                     metadata => metadata.CreatedAt)
-                .Take(50)
                 .ToArray(),
             settings);
     }
@@ -236,9 +244,7 @@ public sealed class ContextBackupService
     {
         if (!File.Exists(SettingsPath))
         {
-            return new ContextBackupSettings(
-                BackupDirectory,
-                null);
+            return CreateDefaultSettings();
         }
 
         try
@@ -250,15 +256,11 @@ public sealed class ContextBackupService
                     JsonOptions,
                     cancellationToken);
 
-            return new ContextBackupSettings(
-                BackupDirectory,
-                persisted?.SecondaryBackupDirectory);
+            return NormalizeSettings(persisted);
         }
         catch
         {
-            return new ContextBackupSettings(
-                BackupDirectory,
-                null);
+            return CreateDefaultSettings();
         }
     }
 
@@ -284,9 +286,79 @@ public sealed class ContextBackupService
             Directory.CreateDirectory(normalized);
         }
 
+        var current = await GetSettingsAsync(
+            cancellationToken);
+
+        var settings = new ContextBackupSettings(
+            BackupDirectory,
+            normalized,
+            current.RecentSnapshotCount,
+            current.DailyRetentionDays,
+            current.WeeklyRetentionWeeks);
+
+        await SaveSettingsAsync(
+            settings,
+            cancellationToken);
+
+        return settings;
+    }
+
+    public async Task<ContextBackupSettings> SetRetentionAsync(
+        int recentSnapshotCount,
+        int dailyRetentionDays,
+        int weeklyRetentionWeeks,
+        CancellationToken cancellationToken)
+    {
+        ValidateRetention(
+            recentSnapshotCount,
+            dailyRetentionDays,
+            weeklyRetentionWeeks);
+
+        var current = await GetSettingsAsync(
+            cancellationToken);
+
+        var settings = new ContextBackupSettings(
+            BackupDirectory,
+            current.SecondaryBackupDirectory,
+            recentSnapshotCount,
+            dailyRetentionDays,
+            weeklyRetentionWeeks);
+
+        await SaveSettingsAsync(
+            settings,
+            cancellationToken);
+
+        Directory.CreateDirectory(BackupDirectory);
+        PruneDirectory(
+            BackupDirectory,
+            settings);
+
+        if (
+            !string.IsNullOrWhiteSpace(
+                settings.SecondaryBackupDirectory) &&
+            Directory.Exists(
+                settings.SecondaryBackupDirectory))
+        {
+            PruneDirectory(
+                settings.SecondaryBackupDirectory,
+                settings);
+        }
+
+        return settings;
+    }
+
+    private async Task SaveSettingsAsync(
+        ContextBackupSettings settings,
+        CancellationToken cancellationToken)
+    {
         Directory.CreateDirectory(RootDirectory);
 
-        var persisted = new PersistedSettings(normalized);
+        var persisted = new PersistedSettings(
+            settings.SecondaryBackupDirectory,
+            settings.RecentSnapshotCount,
+            settings.DailyRetentionDays,
+            settings.WeeklyRetentionWeeks);
+
         var json = JsonSerializer.Serialize(
             persisted,
             JsonOptions);
@@ -295,10 +367,82 @@ public sealed class ContextBackupService
             SettingsPath,
             json,
             cancellationToken);
+    }
+
+    private ContextBackupSettings CreateDefaultSettings() =>
+        new(
+            BackupDirectory,
+            null,
+            DefaultRecentSnapshotCount,
+            DefaultDailyRetentionDays,
+            DefaultWeeklyRetentionWeeks);
+
+    private ContextBackupSettings NormalizeSettings(
+        PersistedSettings? persisted)
+    {
+        var recentSnapshotCount =
+            persisted?.RecentSnapshotCount
+            ?? DefaultRecentSnapshotCount;
+        var dailyRetentionDays =
+            persisted?.DailyRetentionDays
+            ?? DefaultDailyRetentionDays;
+        var weeklyRetentionWeeks =
+            persisted?.WeeklyRetentionWeeks
+            ?? DefaultWeeklyRetentionWeeks;
+
+        try
+        {
+            ValidateRetention(
+                recentSnapshotCount,
+                dailyRetentionDays,
+                weeklyRetentionWeeks);
+        }
+        catch
+        {
+            recentSnapshotCount =
+                DefaultRecentSnapshotCount;
+            dailyRetentionDays =
+                DefaultDailyRetentionDays;
+            weeklyRetentionWeeks =
+                DefaultWeeklyRetentionWeeks;
+        }
 
         return new ContextBackupSettings(
             BackupDirectory,
-            normalized);
+            persisted?.SecondaryBackupDirectory,
+            recentSnapshotCount,
+            dailyRetentionDays,
+            weeklyRetentionWeeks);
+    }
+
+    private static void ValidateRetention(
+        int recentSnapshotCount,
+        int dailyRetentionDays,
+        int weeklyRetentionWeeks)
+    {
+        if (
+            recentSnapshotCount < 1 ||
+            recentSnapshotCount > MaxRecentSnapshotCount)
+        {
+            throw new InvalidDataException(
+                $"Recent snapshot count must be between 1 and {MaxRecentSnapshotCount}.");
+        }
+
+        if (
+            dailyRetentionDays < 0 ||
+            dailyRetentionDays > MaxDailyRetentionDays)
+        {
+            throw new InvalidDataException(
+                $"Daily retention must be between 0 and {MaxDailyRetentionDays} days.");
+        }
+
+        if (
+            weeklyRetentionWeeks < 0 ||
+            weeklyRetentionWeeks > MaxWeeklyRetentionWeeks)
+        {
+            throw new InvalidDataException(
+                $"Weekly retention must be between 0 and {MaxWeeklyRetentionWeeks} weeks.");
+        }
     }
 
     private static void ValidateBackup(
@@ -498,7 +642,8 @@ public sealed class ContextBackupService
     }
 
     private static void PruneDirectory(
-        string directory)
+        string directory,
+        ContextBackupSettings settings)
     {
         var files = Directory
             .EnumerateFiles(
@@ -513,20 +658,20 @@ public sealed class ContextBackupService
             StringComparer.OrdinalIgnoreCase);
 
         foreach (var file in files.Take(
-                     ImmediateRetentionCount))
+                     settings.RecentSnapshotCount))
         {
             keep.Add(file.FullName);
         }
 
         var older = files.Skip(
-            ImmediateRetentionCount);
+            settings.RecentSnapshotCount);
 
         foreach (
             var file in older
                 .GroupBy(file =>
                     file.LastWriteTimeUtc.Date)
                 .OrderByDescending(group => group.Key)
-                .Take(DailyRetentionCount)
+                .Take(settings.DailyRetentionDays)
                 .Select(group =>
                     group.OrderByDescending(
                             file => file.LastWriteTimeUtc)
@@ -550,7 +695,7 @@ public sealed class ContextBackupService
                     group.Key.Item1)
                 .ThenByDescending(group =>
                     group.Key.Item2)
-                .Take(WeeklyRetentionCount)
+                .Take(settings.WeeklyRetentionWeeks)
                 .Select(group =>
                     group.OrderByDescending(
                             file => file.LastWriteTimeUtc)
@@ -576,5 +721,8 @@ public sealed class ContextBackupService
     }
 
     private sealed record PersistedSettings(
-        string? SecondaryBackupDirectory);
+        string? SecondaryBackupDirectory,
+        int? RecentSnapshotCount = null,
+        int? DailyRetentionDays = null,
+        int? WeeklyRetentionWeeks = null);
 }
