@@ -66,11 +66,13 @@ A secondary-copy failure does not invalidate the successful local snapshot.
 
 Each file is written to a temporary sibling and then atomically renamed over the destination.
 
-Retention keeps:
+Retention is configurable. Defaults keep:
 
-- 20 newest snapshots;
-- 7 additional daily restore points;
-- 4 additional weekly restore points.
+- 20 newest snapshots at full granularity;
+- 30 additional daily restore points;
+- 12 additional weekly restore points.
+
+The daily and weekly tiers can be set to 0 to disable them. Changing retention prunes existing files immediately only when the new policy is stricter; increasing retention cannot recreate snapshots already deleted by an older policy.
 
 `latest.json` is a convenience pointer and is not used as the only recovery copy.
 
