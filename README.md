@@ -326,7 +326,7 @@ Architecture and decision record:
 - [Desktop windows in contexts](docs/architecture/desktop-context-windows.md)
 - [ADR 0005 — semantic desktop-window identity](docs/adr/0005-semantic-desktop-window-identity.md)
 
-Desktop-window membership requires the native companion; the current release uses protocol v3. After pulling this branch, reinstall the Windows companion before testing:
+Desktop-window membership requires the native companion; the current release uses protocol v4. After pulling this branch, reinstall the Windows companion before testing:
 
 ```powershell
 # Firefox
@@ -347,7 +347,7 @@ Focus considered=..., minimized=..., matched=..., restored=..., unresolved=...
 
 ## Automatic context backups
 
-Context state can be backed up outside browser extension storage through native companion protocol v3.
+Context state can be backed up outside browser extension storage through native companion protocol v4.
 
 Automatic backups are scheduled after context/organizing-target changes with a 3-second persistent alarm debounce. Startup and extension installation also schedule a snapshot.
 
@@ -396,7 +396,7 @@ Manual JSON import works even without the native companion. When the companion i
 
 ### Upgrade the native companion
 
-This feature raises the native protocol to v3 and the companion version to 0.2.0.
+This feature raises the native protocol to v3 and the companion version to 0.3.0.
 
 After pulling the branch/build containing this feature, reinstall it:
 
@@ -414,8 +414,8 @@ Then rebuild/reload the extension.
 
 ### Backup test pass
 
-1. Reinstall the protocol-v3 native companion.
-2. Open the popup and confirm the companion reports v0.2.0 and Backups is available.
+1. Reinstall the protocol-v4 native companion.
+2. Open the popup and confirm the companion reports v0.3.0 and Backups is available.
 3. Click **Backup now** and confirm a restore point appears.
 4. Change a context name/tab arrangement, wait a few seconds, and confirm a newer automatic snapshot appears.
 5. Configure a private secondary synced folder and click **Backup now**.
@@ -498,3 +498,18 @@ chrome://extensions/shortcuts
 This MVP uses browser extension shortcuts, so the browser must be the active application. Global Windows shortcuts are a later native-companion feature.
 
 Architecture: [docs/architecture/fast-context-navigation.md](docs/architecture/fast-context-navigation.md)
+
+
+### Retention settings
+
+Backup retention is tiered and configurable from the **Backups** panel:
+
+- **Recent** — number of newest snapshots kept at full granularity (default: 20)
+- **Daily days** — additionally keep one restore point per day (default: 30)
+- **Weekly weeks** — additionally keep one restore point per week (default: 12)
+
+Setting daily or weekly retention to `0` disables that tier.
+
+Automatic backups are change-driven and currently scheduled about 3 seconds after context state changes. The recent tier can therefore fill quickly during active use; the daily/weekly tiers preserve longer recovery history.
+
+The popup initially shows the six newest restore points. Use **Show older** to browse every retained restore point returned by the companion.
