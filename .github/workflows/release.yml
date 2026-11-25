@@ -78,9 +78,6 @@ jobs:
       - name: Lint Firefox extension
         run: npm run lint:firefox
 
-      - name: Build native companion
-        run: dotnet build native/ContextTabManager.NativeHost/ContextTabManager.NativeHost.csproj --configuration Release
-
       - name: Create local release commit
         shell: bash
         run: |
@@ -107,6 +104,9 @@ jobs:
             cd dist
             zip -qr "../artifacts/chrome/context-tab-manager-${{ steps.version.outputs.version }}-chrome.zip" .
           )
+
+      - name: Build native companion
+        run: dotnet build native/ContextTabManager.NativeHost/ContextTabManager.NativeHost.csproj --configuration Release
 
       - name: Tag release commit
         run: git tag "${{ steps.version.outputs.tag }}"
