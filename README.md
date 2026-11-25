@@ -446,3 +446,42 @@ Setting daily or weekly retention to `0` disables that tier.
 Automatic backups are change-driven and currently scheduled about 3 seconds after context state changes. The recent tier can therefore fill quickly during active use; the daily/weekly tiers preserve longer recovery history.
 
 The popup initially shows the six newest restore points. Use **Show older** to browse every retained restore point returned by the companion.
+
+
+## Automatic GitHub releases
+
+Every pull request merged into `master` triggers `.github/workflows/release.yml`.
+
+The release workflow:
+
+1. checks out the merged `master`;
+2. reads the highest known release version from the manifests/package, `.release-version`, and the latest `v*.*.*` tag;
+3. increments the patch version;
+4. validates and builds Chrome + Firefox;
+5. lints Firefox with `web-ext`;
+6. creates a local release commit containing the exact versioned source used for signing;
+7. packages Firefox and its source archive;
+8. signs Firefox as an unlisted AMO build using `WEB_EXT_API_KEY` / `WEB_EXT_API_SECRET`;
+9. packages Chrome;
+10. validates the .NET native companion build;
+11. tags the local release commit and creates a GitHub Release with generated notes.
+
+Release assets:
+
+```text
+<signed Firefox>.xpi
+context-tab-manager-<version>.zip
+context-tab-manager-<version>-source.zip
+context-tab-manager-<version>-chrome.zip
+```
+
+The release tag, rather than a bot commit on `master`, is the authoritative release history. This avoids branch-protection and recursive-workflow problems while preserving the exact versioned source tree that was signed.
+
+`.release-version` is seeded to `0.4.0` because AMO has already successfully signed Firefox 0.4.0 through the earlier manual workflow. Future automatic releases therefore remain monotonic even when an older feature branch contains stale manifest versions.
+
+Required GitHub repository secrets:
+
+```text
+WEB_EXT_API_KEY      # AMO JWT issuer
+WEB_EXT_API_SECRET   # AMO JWT secret
+```
