@@ -27,6 +27,12 @@ export type ManagerRequest =
       directory?: string;
     }
   | {
+      type: "backup:set-retention";
+      recentSnapshotCount: number;
+      dailyRetentionDays: number;
+      weeklyRetentionWeeks: number;
+    }
+  | {
       type: "contexts:add-desktop-window";
       contextId: string;
       candidate: DesktopWindowCandidate;
