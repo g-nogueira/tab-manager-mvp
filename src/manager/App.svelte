@@ -63,6 +63,33 @@
   };
   let quickSwitcherMode = false;
   let quickSelectedIndex = 0;
+  let shortcutStatus: "loading" | "ready" | "unavailable" = "loading";
+  let previousContextShortcut = "";
+  let quickSwitcherShortcut = "";
+
+  async function refreshShortcuts(): Promise<void> {
+    try {
+      const commands = await chrome.commands.getAll();
+      previousContextShortcut = commands.find(
+        (command) => command.name === "focus-previous-context"
+      )?.shortcut ?? "";
+      quickSwitcherShortcut = commands.find(
+        (command) => command.name === "open-quick-context-switcher"
+      )?.shortcut ?? "";
+      shortcutStatus = "ready";
+    } catch {
+      shortcutStatus = "unavailable";
+    }
+  }
+
+  function shortcutLabel(
+    shortcut: string,
+    status: "loading" | "ready" | "unavailable"
+  ): string {
+    if (status === "loading") return "Loading…";
+    if (status === "unavailable") return "Unavailable";
+    return shortcut || "Not assigned";
+  }
 
   async function send(request: ManagerRequest): Promise<ManagerResponse> {
     return chrome.runtime.sendMessage(request) as Promise<ManagerResponse>;
@@ -1304,6 +1331,7 @@
   }
 
   onMount(() => {
+    void refreshShortcuts();
     void (async () => {
       try {
         const quickState = await chrome.storage.session.get(
@@ -1424,6 +1452,9 @@
           {/each}
         </div>
         <div class="quick-help">
+          {#if quickSwitcherShortcut}
+            <span>Repeat <kbd>{quickSwitcherShortcut}</kbd> to cycle · </span>
+          {/if}
           ↑/↓ select · Enter switch · 1–8 direct · Esc close
         </div>
       {/if}
@@ -1445,6 +1476,22 @@
     <span>⌕</span>
     <input bind:value={query} placeholder="Search contexts and tabs…" />
   </label>
+
+  <details class="shortcut-panel">
+    <summary>Keyboard shortcuts</summary>
+    <dl>
+      <div>
+        <dt>Focus previous context</dt>
+        <dd><kbd>{shortcutLabel(previousContextShortcut, shortcutStatus)}</kbd></dd>
+      </div>
+      <div>
+        <dt>Open quick switcher</dt>
+        <dd><kbd>{shortcutLabel(quickSwitcherShortcut, shortcutStatus)}</kbd></dd>
+      </div>
+    </dl>
+    <p>Previous toggles between your last two contexts. In the quick switcher, repeat its shortcut to cycle, use ↑/↓ to select, Enter to switch, 1–8 for direct selection, or Esc to close.</p>
+    <p>Shortcuts work while the browser is active. To customize them, open Firefox’s Manage Extension Shortcuts or Chrome’s extensions shortcut settings (chrome://extensions/shortcuts).</p>
+  </details>
 
   <div class="companion-status">
     <div
@@ -2394,6 +2441,57 @@
     outline: 0;
     background: transparent;
     color: #eef9fa;
+  }
+
+  .shortcut-panel {
+    margin-top: 9px;
+    border: 1px solid #263d44;
+    border-radius: 8px;
+    background: #142126;
+    color: #c8d5d8;
+    font-size: 11px;
+  }
+
+  .shortcut-panel summary {
+    padding: 8px 10px;
+    cursor: pointer;
+    color: #b4c6ca;
+  }
+
+  .shortcut-panel dl {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+    padding: 3px 10px 0;
+  }
+
+  .shortcut-panel dl > div {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .shortcut-panel dd {
+    margin: 0;
+    text-align: right;
+  }
+
+  .shortcut-panel p {
+    margin: 8px 10px;
+    color: #9aadb2;
+    line-height: 1.5;
+  }
+
+  kbd {
+    display: inline-block;
+    padding: 2px 5px;
+    border: 1px solid #39535b;
+    border-radius: 4px;
+    background: #172a30;
+    color: #b4dce0;
+    font: inherit;
+    overflow-wrap: anywhere;
   }
 
   .companion-status {
