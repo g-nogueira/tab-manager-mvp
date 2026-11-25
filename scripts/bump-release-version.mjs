@@ -60,6 +60,8 @@ if (process.env.RELEASE_VERSION_FLOOR) {
   );
 }
 
+const dryRun = process.argv.includes("--dry-run");
+
 const highest = knownVersions
   .map((version) => ({
     raw: version,
@@ -72,24 +74,26 @@ const highest = knownVersions
 const [major, minor, patch] = highest.parsed;
 const nextVersion = `${major}.${minor}.${patch + 1}`;
 
-firefoxManifest.version = nextVersion;
-chromeManifest.version = nextVersion;
-packageJson.version = nextVersion;
+if (!dryRun) {
+  firefoxManifest.version = nextVersion;
+  chromeManifest.version = nextVersion;
+  packageJson.version = nextVersion;
 
-writeJson(firefoxManifestPath, firefoxManifest);
-writeJson(chromeManifestPath, chromeManifest);
-writeJson(packagePath, packageJson);
-writeFileSync(releaseVersionPath, nextVersion + "\n");
+  writeJson(firefoxManifestPath, firefoxManifest);
+  writeJson(chromeManifestPath, chromeManifest);
+  writeJson(packagePath, packageJson);
+  writeFileSync(releaseVersionPath, nextVersion + "\n");
 
-if (existsSync(packageLockPath)) {
-  const packageLock = readJson(packageLockPath);
-  packageLock.version = nextVersion;
+  if (existsSync(packageLockPath)) {
+    const packageLock = readJson(packageLockPath);
+    packageLock.version = nextVersion;
 
-  if (packageLock.packages?.[""]) {
-    packageLock.packages[""].version = nextVersion;
+    if (packageLock.packages?.[""]) {
+      packageLock.packages[""].version = nextVersion;
+    }
+
+    writeJson(packageLockPath, packageLock);
   }
-
-  writeJson(packageLockPath, packageLock);
 }
 
 if (process.env.GITHUB_OUTPUT) {
