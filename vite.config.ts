@@ -42,6 +42,7 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         input: {
           manager: resolve(process.cwd(), "manager/index.html"),
+          "restore-recovery": resolve(process.cwd(), "restore-recovery/index.html"),
           "service-worker": resolve(
             process.cwd(),
             "src/background/service-worker.ts"
