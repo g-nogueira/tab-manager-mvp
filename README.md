@@ -433,6 +433,73 @@ Architecture: [docs/architecture/context-backups.md](docs/architecture/context-b
 ADR: [ADR 0006 — Native versioned context backups](docs/adr/0006-native-versioned-context-backups.md)
 
 
+## Fast context navigation
+
+The full popup is intended for context organization. For frequent task switching, the extension also provides two keyboard-first navigation commands.
+
+### Previous context
+
+Default:
+
+```text
+Alt+Shift+Q
+```
+
+Runs full **Focus** on the previously used context. Press it again to return to the context you came from.
+
+Typical flow:
+
+```text
+CXP-123
+  ↓ Alt+Shift+Q
+CXP-1234
+  ↓ Alt+Shift+Q
+CXP-123
+```
+
+### Quick switcher
+
+Default:
+
+```text
+Alt+Shift+W
+```
+
+Opens a compact list of recent contexts rather than the full manager.
+
+Controls:
+
+- press the shortcut repeatedly to advance the highlighted context while the switcher remains open;
+- ↑ / ↓ to select;
+- Enter to focus;
+- 1–8 for direct selection;
+- Esc to close.
+
+Pinned shelved contexts are included when they are not already among the leading recent contexts.
+
+The quick-switch list uses separate MRU navigation state and does **not** change the normal popup's context ordering.
+
+### Customize shortcuts
+
+Firefox:
+
+```text
+about:addons
+→ Extensions
+→ Manage Extension Shortcuts
+```
+
+Chrome/Chromium:
+
+```text
+chrome://extensions/shortcuts
+```
+
+This MVP uses browser extension shortcuts, so the browser must be the active application. Global Windows shortcuts are a later native-companion feature.
+
+Architecture: [docs/architecture/fast-context-navigation.md](docs/architecture/fast-context-navigation.md)
+
+
 ### Retention settings
 
 Backup retention is tiered and configurable from the **Backups** panel:
@@ -450,23 +517,28 @@ The popup initially shows the six newest restore points. Use **Show older** to b
 
 ## Automatic GitHub releases
 
-Every pull request merged into `master` triggers `.github/workflows/release.yml`.
+Every pull request merged into the repository's default branch (`master`) triggers `.github/workflows/release.yml`.
 
-The release workflow:
+The workflow:
 
 1. checks out the merged `master`;
-2. reads the highest known release version from the manifests/package, `.release-version`, and the latest `v*.*.*` tag;
+2. reads the highest known release version from:
+   - existing browser/package versions;
+   - `.release-version`;
+   - the latest `v*.*.*` Git tag;
 3. increments the patch version;
-4. validates and builds Chrome + Firefox;
-5. lints Firefox with `web-ext`;
-6. creates a local release commit containing the exact versioned source used for signing;
-7. packages Firefox and its source archive;
-8. signs Firefox as an unlisted AMO build using `WEB_EXT_API_KEY` / `WEB_EXT_API_SECRET`;
-9. packages Chrome;
-10. validates the .NET native companion build;
-11. tags the local release commit and creates a GitHub Release with generated notes.
+4. runs TypeScript/Svelte checks;
+5. builds Chrome and Firefox;
+6. runs Mozilla `web-ext lint`;
+7. builds the .NET native companion as a validation step;
+8. creates a local release commit containing the exact version that will be signed;
+9. packages Firefox and its source archive;
+10. signs Firefox through AMO as an unlisted extension using `WEB_EXT_API_KEY` and `WEB_EXT_API_SECRET`;
+11. packages the Chrome extension;
+12. tags the local release commit as `v<version>`;
+13. pushes the tag and creates a GitHub Release with generated release notes.
 
-Release assets:
+Published release assets include:
 
 ```text
 <signed Firefox>.xpi
@@ -475,13 +547,21 @@ context-tab-manager-<version>-source.zip
 context-tab-manager-<version>-chrome.zip
 ```
 
-The release tag, rather than a bot commit on `master`, is the authoritative release history. This avoids branch-protection and recursive-workflow problems while preserving the exact versioned source tree that was signed.
+The workflow also uploads the same artifacts to the Actions run.
 
-`.release-version` is seeded to `0.4.0` because AMO has already successfully signed Firefox 0.4.0 through the earlier manual workflow. Future automatic releases therefore remain monotonic even when an older feature branch contains stale manifest versions.
+### Version source
 
-Required GitHub repository secrets:
+`.release-version` is a bootstrap floor, currently seeded to `0.4.0` because AMO has already signed Firefox 0.4.0 from the earlier manual workflow.
+
+After the first automated release, Git tags are the authoritative monotonic release history. This avoids publishing an older semantic version even if an old feature branch contains stale manifest/package versions.
+
+Release commits are tagged but are not pushed back to `master`; the merged source commit remains the branch history, while each release tag points to the exact version-adjusted source tree used to build/sign that release.
+
+### Required repository secrets
 
 ```text
-WEB_EXT_API_KEY      # AMO JWT issuer
-WEB_EXT_API_SECRET   # AMO JWT secret
+WEB_EXT_API_KEY
+WEB_EXT_API_SECRET
 ```
+
+These are the AMO JWT issuer and JWT secret respectively.
