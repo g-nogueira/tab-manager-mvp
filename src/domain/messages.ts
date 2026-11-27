@@ -1,3 +1,9 @@
+import type {
+  ContextBackupDocument,
+  ContextBackupListResult,
+  ContextBackupSaveResult,
+  ContextBackupSettings
+} from "./backup";
 import type { BrowserContext } from "./context";
 import type {
   DesktopCompanionStatus,
@@ -11,6 +17,21 @@ export type ManagerRequest =
   | { type: "contexts:focus"; contextId: string; requestId?: string }
   | { type: "desktop:status"; requestId: string }
   | { type: "desktop:list-windows"; requestId: string }
+  | { type: "backup:list" }
+  | { type: "backup:create" }
+  | { type: "backup:export" }
+  | { type: "backup:import"; backup: ContextBackupDocument }
+  | { type: "backup:restore"; backupId: string }
+  | {
+      type: "backup:set-secondary-directory";
+      directory?: string;
+    }
+  | {
+      type: "backup:set-retention";
+      recentSnapshotCount: number;
+      dailyRetentionDays: number;
+      weeklyRetentionWeeks: number;
+    }
   | {
       type: "contexts:add-desktop-window";
       contextId: string;
@@ -49,5 +70,9 @@ export type ManagerResponse =
       canUndoWindowMove?: boolean;
       desktopStatus?: DesktopCompanionStatus;
       desktopCandidates?: DesktopWindowCandidate[];
+      backupList?: ContextBackupListResult;
+      backupSave?: ContextBackupSaveResult;
+      backupSettings?: ContextBackupSettings;
+      backupDocument?: ContextBackupDocument;
     }
   | { ok: false; error: string };

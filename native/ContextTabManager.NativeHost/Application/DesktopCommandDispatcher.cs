@@ -2,7 +2,9 @@ using ContextTabManager.NativeHost.Protocol;
 
 namespace ContextTabManager.NativeHost.Application;
 
-public sealed class DesktopCommandDispatcher(IDesktopService desktopService)
+public sealed class DesktopCommandDispatcher(
+    IDesktopService desktopService,
+    ContextBackupService backupService)
 {
     public async Task<NativeResponse> DispatchAsync(
         NativeCommandRequest request,
@@ -31,6 +33,40 @@ public sealed class DesktopCommandDispatcher(IDesktopService desktopService)
                 request.Matchers ?? [],
                 cancellationToken),
 
+            "backupContextState" => await BackupContextStateAsync(
+                request,
+                cancellationToken),
+
+            "listContextBackups" => NativeResponse.Success(
+                request.Command,
+                request.RequestId,
+                result: await backupService.ListAsync(
+                    cancellationToken)),
+
+            "readContextBackup" => await ReadContextBackupAsync(
+                request,
+                cancellationToken),
+
+            "getContextBackupSettings" => NativeResponse.Success(
+                request.Command,
+                request.RequestId,
+                result: await backupService.GetSettingsAsync(
+                    cancellationToken)),
+
+            "setContextBackupSecondaryDirectory" =>
+                NativeResponse.Success(
+                    request.Command,
+                    request.RequestId,
+                    result:
+                        await backupService.SetSecondaryDirectoryAsync(
+                            request.SecondaryBackupDirectory,
+                            cancellationToken)),
+
+            "setContextBackupRetention" =>
+                await SetContextBackupRetentionAsync(
+                    request,
+                    cancellationToken),
+
             _ => NativeResponse.Failure(
                 request.Command,
                 $"Unsupported command: {request.Command}",
@@ -50,10 +86,82 @@ public sealed class DesktopCommandDispatcher(IDesktopService desktopService)
 
         return new DesktopCompanionStatus(
             version,
-            ProtocolVersion: 2,
+            ProtocolVersion: 4,
             capabilities.Platform,
             capabilities.CanPrepareDesktopForFocus,
-            capabilities.CanEnumerateDesktopWindows);
+            capabilities.CanEnumerateDesktopWindows,
+            CanBackupContexts: true);
+    }
+
+    private async Task<NativeResponse> SetContextBackupRetentionAsync(
+        NativeCommandRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (
+            request.RecentSnapshotCount is null ||
+            request.DailyRetentionDays is null ||
+            request.WeeklyRetentionWeeks is null)
+        {
+            return NativeResponse.Failure(
+                request.Command,
+                "All retention settings are required.",
+                request.RequestId);
+        }
+
+        var settings = await backupService.SetRetentionAsync(
+            request.RecentSnapshotCount.Value,
+            request.DailyRetentionDays.Value,
+            request.WeeklyRetentionWeeks.Value,
+            cancellationToken);
+
+        return NativeResponse.Success(
+            request.Command,
+            request.RequestId,
+            result: settings);
+    }
+
+    private async Task<NativeResponse> BackupContextStateAsync(
+        NativeCommandRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (request.Backup is null)
+        {
+            return NativeResponse.Failure(
+                request.Command,
+                "Backup payload is required.",
+                request.RequestId);
+        }
+
+        var result = await backupService.SaveAsync(
+            request.Backup.Value,
+            cancellationToken);
+
+        return NativeResponse.Success(
+            request.Command,
+            request.RequestId,
+            result: result);
+    }
+
+    private async Task<NativeResponse> ReadContextBackupAsync(
+        NativeCommandRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.BackupId))
+        {
+            return NativeResponse.Failure(
+                request.Command,
+                "Backup id is required.",
+                request.RequestId);
+        }
+
+        var result = await backupService.ReadAsync(
+            request.BackupId,
+            cancellationToken);
+
+        return NativeResponse.Success(
+            request.Command,
+            request.RequestId,
+            result: result);
     }
 
     private async Task<NativeResponse> ListDesktopWindowsAsync(

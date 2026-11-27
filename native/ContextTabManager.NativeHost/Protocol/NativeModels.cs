@@ -1,3 +1,4 @@
+using System.Text.Json;
 using ContextTabManager.NativeHost.Application;
 
 namespace ContextTabManager.NativeHost.Protocol;
@@ -5,7 +6,13 @@ namespace ContextTabManager.NativeHost.Protocol;
 public sealed record NativeCommandRequest(
     string Command,
     string? RequestId = null,
-    IReadOnlyList<DesktopWindowMatcher>? Matchers = null);
+    IReadOnlyList<DesktopWindowMatcher>? Matchers = null,
+    JsonElement? Backup = null,
+    string? BackupId = null,
+    string? SecondaryBackupDirectory = null,
+    int? RecentSnapshotCount = null,
+    int? DailyRetentionDays = null,
+    int? WeeklyRetentionWeeks = null);
 
 public sealed record NativeResponse(
     bool Ok,

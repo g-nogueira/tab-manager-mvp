@@ -19,6 +19,7 @@ import {
 } from "./context-store";
 
 const ownExtensionPrefix = chrome.runtime.getURL("");
+const recoveryPageUrl = chrome.runtime.getURL("restore-recovery/index.html");
 
 function now(): number {
   return Date.now();
@@ -42,18 +43,36 @@ function isOwnExtensionUrl(url?: string): boolean {
   return Boolean(url && url.startsWith(ownExtensionPrefix));
 }
 
+function recoveryUrl(snapshot: TabSnapshot): string {
+  const url = new URL(recoveryPageUrl);
+  url.searchParams.set("url", snapshot.url);
+  url.searchParams.set("title", snapshot.title);
+  return url.href;
+}
+
+function recoveredSnapshot(url?: string): { url: string; title: string } | undefined {
+  if (!url?.startsWith(recoveryPageUrl + "?")) return undefined;
+  const params = new URL(url).searchParams;
+  const original = params.get("url");
+  if (!original || isOwnExtensionUrl(original)) return undefined;
+  return { url: original, title: params.get("title") || original };
+}
+
 function snapshotTabs(tabs: chrome.tabs.Tab[] = []): TabSnapshot[] {
   return tabs
-    .filter((tab) => !isOwnExtensionUrl(tab.url))
-    .map((tab) => ({
-      tabId: tab.id,
-      url: tab.url ?? "",
-      title: tab.title ?? tab.url ?? "Untitled tab",
-      favIconUrl: tab.favIconUrl,
-      pinned: tab.pinned,
-      index: tab.index,
-      active: tab.active
-    }))
+    .flatMap((tab): TabSnapshot[] => {
+      const recovery = recoveredSnapshot(tab.pendingUrl ?? tab.url);
+      if (!recovery && isOwnExtensionUrl(tab.pendingUrl ?? tab.url)) return [];
+      return [{
+        tabId: tab.id,
+        url: recovery?.url ?? tab.pendingUrl ?? tab.url ?? "",
+        title: recovery?.title ?? tab.title ?? tab.pendingUrl ?? tab.url ?? "Untitled tab",
+        favIconUrl: recovery ? undefined : tab.favIconUrl,
+        pinned: tab.pinned,
+        index: tab.index,
+        active: tab.active
+      }];
+    })
     .sort((a, b) => a.index - b.index);
 }
 
@@ -530,15 +549,12 @@ async function createBrowserWindowFromSnapshot(
     .filter((tab) => canRestoreUrl(tab.url))
     .sort((a, b) => a.index - b.index);
 
-  const urls = snapshots.map((tab) => tab.url);
+  // A single restricted URL must not prevent a whole window from restoring.
   const createData: chrome.windows.CreateData = {
     focused: false,
-    state: "normal"
+    state: "normal",
+    url: "about:blank"
   };
-
-  if (urls.length > 0) {
-    createData.url = urls;
-  }
 
   if (contextWindow.normalBounds) {
     createData.left = contextWindow.normalBounds.left;
@@ -562,23 +578,43 @@ async function createBrowserWindowFromSnapshot(
     contextWindowId: contextWindow.id
   };
 
-  const createdTabs = await chrome.tabs.query({ windowId: created.id });
+  const initialTabs = await chrome.tabs.query({ windowId: created.id });
+  const restoredTabs: chrome.tabs.Tab[] = [];
 
-  for (
-    let index = 0;
-    index < Math.min(createdTabs.length, snapshots.length);
-    index += 1
-  ) {
-    const tab = createdTabs[index];
+  for (const snapshot of snapshots) {
+    const properties = { windowId: created.id, active: false };
+    let tab: chrome.tabs.Tab;
+    try {
+      // Never execute a saved javascript: URL.
+      if (/^javascript:/i.test(snapshot.url.trim())) {
+        throw new Error("Script URLs cannot be restored");
+      }
+      tab = await chrome.tabs.create({ ...properties, url: snapshot.url });
+    } catch {
+      // Preserve the original URL in a local extension page. Snapshotting
+      // decodes it again, so subsequent shelves/backups do not lose the URL.
+      tab = await chrome.tabs.create({ ...properties, url: recoveryUrl(snapshot) });
+    }
+    restoredTabs.push(tab);
+  }
+
+  if (restoredTabs.length > 0) {
+    const initialIds = initialTabs.flatMap((tab) =>
+      tab.id === undefined ? [] : [tab.id]
+    );
+    if (initialIds.length > 0) await chrome.tabs.remove(initialIds);
+  }
+
+  for (let index = 0; index < restoredTabs.length; index += 1) {
+    const tab = restoredTabs[index];
     const snapshot = snapshots[index];
-
     if (tab.id !== undefined && snapshot.pinned !== tab.pinned) {
       await chrome.tabs.update(tab.id, { pinned: snapshot.pinned });
     }
   }
 
   const activeIndex = snapshots.findIndex((tab) => tab.active);
-  const activeTab = createdTabs[activeIndex >= 0 ? activeIndex : 0];
+  const activeTab = restoredTabs[activeIndex >= 0 ? activeIndex : 0];
 
   if (activeTab?.id !== undefined) {
     await chrome.tabs.update(activeTab.id, { active: true });

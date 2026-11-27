@@ -326,7 +326,7 @@ Architecture and decision record:
 - [Desktop windows in contexts](docs/architecture/desktop-context-windows.md)
 - [ADR 0005 — semantic desktop-window identity](docs/adr/0005-semantic-desktop-window-identity.md)
 
-This feature requires the protocol-v2 native companion. After pulling the feature branch, reinstall the Windows companion before testing:
+Desktop-window membership requires the native companion; the current release uses protocol v4. After pulling this branch, reinstall the Windows companion before testing:
 
 ```powershell
 # Firefox
@@ -342,4 +342,146 @@ Native logs include Focus matching counts:
 
 ```text
 Focus considered=..., minimized=..., matched=..., restored=..., unresolved=...
+```
+
+
+## Automatic context backups
+
+Context state can be backed up outside browser extension storage through native companion protocol v4.
+
+Automatic backups are scheduled after context/organizing-target changes with a 3-second persistent alarm debounce. Startup and extension installation also schedule a snapshot.
+
+Local snapshots are stored under:
+
+```text
+%LOCALAPPDATA%\ContextTabManager\Backups
+```
+
+Default retention keeps the 20 most recent snapshots, 30 additional daily restore points and 12 additional weekly restore points. These values are configurable from the Backups panel.
+
+The popup **Backups** panel provides:
+
+- current/latest backup status;
+- **Backup now**;
+- recent restore points;
+- local backup directory;
+- optional secondary/cloud-synced folder;
+- **Export JSON** / **Import JSON**.
+
+### Secondary/cloud-synced folder
+
+Enter an absolute directory such as:
+
+```text
+G:\My Drive\ContextTabManager
+```
+
+or an appropriate private OneDrive/local sync path.
+
+The native companion always writes the LocalAppData snapshot first. The secondary copy is best-effort: a disconnected sync drive does not invalidate the local backup.
+
+Snapshot discovery merges the local and configured secondary directories. Restore points show whether they came from Chrome or Firefox, and the portable format can be deliberately restored across browsers. After losing local AppData, reinstall the companion/extension, configure the synced folder again, and its existing restore points become available directly.
+
+The companion does not authenticate to Google Drive/OneDrive itself and does not implement bidirectional synchronization.
+
+> Backup JSON is plaintext and can contain context names, tab titles/URLs and desktop-window references. Use a private or separately encrypted synced folder.
+
+### Restore behavior
+
+Before restoring a native restore point, the current context state is saved as a `pre-restore` backup.
+
+Recovered browser runtime IDs are never reused. Recovered browser windows are restored as **shelved** snapshots; use **Restore** on the desired context to recreate its browser windows. Desktop-window semantic references remain attached to the recovered context.
+
+Manual JSON import works even without the native companion. When the companion is reachable, it attempts a pre-import safety snapshot first.
+
+### Upgrade the native companion
+
+This feature raises the native protocol to v3 and the companion version to 0.3.0.
+
+After pulling the branch/build containing this feature, reinstall it:
+
+```powershell
+# Firefox
+./native/ContextTabManager.NativeHost/install-windows.ps1 -Browser Firefox
+
+# Chrome
+./native/ContextTabManager.NativeHost/install-windows.ps1 `
+  -Browser Chrome `
+  -ChromeExtensionId <chrome-extension-id>
+```
+
+Then rebuild/reload the extension.
+
+### Backup test pass
+
+1. Reinstall the protocol-v4 native companion.
+2. Open the popup and confirm the companion reports v0.3.0 and Backups is available.
+3. Click **Backup now** and confirm a restore point appears.
+4. Change a context name/tab arrangement, wait a few seconds, and confirm a newer automatic snapshot appears.
+5. Configure a private secondary synced folder and click **Backup now**.
+6. Confirm the versioned JSON and `latest.json` appear in both LocalAppData and the secondary folder.
+7. Restore an older snapshot:
+   - current state is first captured as `pre-restore`;
+   - recovered contexts appear shelved;
+   - opening **Restore** on a recovered context recreates its windows/tabs.
+8. Export JSON, make a harmless context change, and import the JSON to verify companion-independent recovery.
+9. To simulate local-backup loss without deleting real data, temporarily point the secondary setting at a test directory containing copied backup files and verify those restore points are discovered.
+10. Verify NativeHost logs record backup IDs/counts and that a secondary-folder failure leaves the local snapshot intact.
+
+Architecture: [docs/architecture/context-backups.md](docs/architecture/context-backups.md)
+
+ADR: [ADR 0006 — Native versioned context backups](docs/adr/0006-native-versioned-context-backups.md)
+
+
+### Retention settings
+
+Backup retention is tiered and configurable from the **Backups** panel:
+
+- **Recent** — number of newest snapshots kept at full granularity (default: 20)
+- **Daily days** — additionally keep one restore point per day (default: 30)
+- **Weekly weeks** — additionally keep one restore point per week (default: 12)
+
+Setting daily or weekly retention to `0` disables that tier.
+
+Automatic backups are change-driven and currently scheduled about 3 seconds after context state changes. The recent tier can therefore fill quickly during active use; the daily/weekly tiers preserve longer recovery history.
+
+The popup initially shows the six newest restore points. Use **Show older** to browse every retained restore point returned by the companion.
+
+
+## Automatic GitHub releases
+
+Every pull request merged into `master` triggers `.github/workflows/release.yml`.
+
+The release workflow:
+
+1. checks out the merged `master`;
+2. reads the highest known release version from the manifests/package, `.release-version`, and the latest `v*.*.*` tag;
+3. increments the patch version;
+4. validates and builds Chrome + Firefox;
+5. lints Firefox with `web-ext`;
+6. creates a local release commit containing the exact versioned source used for signing;
+7. packages Firefox and its source archive;
+8. signs Firefox as an unlisted AMO build using `WEB_EXT_API_KEY` / `WEB_EXT_API_SECRET`;
+9. packages Chrome;
+10. validates the .NET native companion build;
+11. tags the local release commit and creates a GitHub Release with generated notes.
+
+Release assets:
+
+```text
+<signed Firefox>.xpi
+context-tab-manager-<version>.zip
+context-tab-manager-<version>-source.zip
+context-tab-manager-<version>-chrome.zip
+```
+
+The release tag, rather than a bot commit on `master`, is the authoritative release history. This avoids branch-protection and recursive-workflow problems while preserving the exact versioned source tree that was signed.
+
+`.release-version` is seeded to `0.4.0` because AMO has already successfully signed Firefox 0.4.0 through the earlier manual workflow. Future automatic releases therefore remain monotonic even when an older feature branch contains stale manifest versions.
+
+Required GitHub repository secrets:
+
+```text
+WEB_EXT_API_KEY      # AMO JWT issuer
+WEB_EXT_API_SECRET   # AMO JWT secret
 ```

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tab needs manual restore</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #10181b; color: #e7f0f2; }
+    main { max-width: 680px; margin: 12vh auto; padding: 24px; }
+    h1 { font-size: 24px; }
+    p { line-height: 1.6; color: #b4c6ca; overflow-wrap: anywhere; }
+    textarea { box-sizing: border-box; width: 100%; padding: 12px; min-height: 100px; background: #142126; color: inherit; border: 1px solid #47616a; border-radius: 8px; font: inherit; }
+    button { margin-top: 12px; padding: 8px 16px; background: #21363c; border: 1px solid #47616a; border-radius: 6px; color: inherit; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Tab needs manual restore</h1>
+    <p id="saved-title"></p>
+    <p>The browser refused to open this saved address automatically. The original address is still preserved in your context. For a trusted local file, copy the address into this tab's address bar to open it manually.</p>
+    <label for="saved-url">Saved address</label>
+    <textarea id="saved-url" readonly></textarea>
+    <button id="copy-address" type="button">Copy address</button>
+    <p id="copy-status" role="status"></p>
+  </main>
+  <script type="module" src="/src/restore-recovery/main.ts"></script>
+</body>
+</html>
